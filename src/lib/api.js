@@ -1,0 +1,127 @@
+import { supabase } from './supabaseClient'
+import { STATUS } from './constants'
+
+// Small helper so callers get a clean error message instead of a raw object.
+function unwrap({ data, error }) {
+  if (error) throw new Error(error.message)
+  return data
+}
+
+// ---- Problems --------------------------------------------------------------
+
+export async function fetchProblems(filters = {}) {
+  let query = supabase.from('kk_problems').select('*').order('created_at', { ascending: false })
+
+  if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
+
+  return unwrap(await query)
+}
+
+export async function fetchProblemById(problemId) {
+  return unwrap(
+    await supabase.from('kk_problems').select('*').eq('problem_id', problemId).single(),
+  )
+}
+
+// Distinct accountants for the filter dropdown.
+export async function fetchAccountants() {
+  const rows = unwrap(
+    await supabase
+      .from('kk_problems')
+      .select('accountant_id, accountant_name')
+      .not('accountant_id', 'is', null),
+  )
+  const map = new Map()
+  for (const r of rows) {
+    if (r.accountant_id && !map.has(r.accountant_id)) {
+      map.set(r.accountant_id, r.accountant_name || r.accountant_id)
+    }
+  }
+  return [...map.entries()].map(([id, name]) => ({ id, name }))
+}
+
+export async function createProblem(problem) {
+  return unwrap(await supabase.from('kk_problems').insert(problem).select().single())
+}
+
+async function updateProblemStatus(problemId, status) {
+  return unwrap(
+    await supabase
+      .from('kk_problems')
+      .update({ status })
+      .eq('problem_id', problemId)
+      .select()
+      .single(),
+  )
+}
+
+// ---- Accountant feedback ---------------------------------------------------
+
+export async function fetchFeedback(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_accountant_feedback')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('submitted_at', { ascending: false }),
+  )
+}
+
+// Save accountant feedback and move the problem into the review queue.
+export async function submitAccountantFeedback({
+  problemId,
+  accountantId,
+  accountantName,
+  situationComment,
+  solutionComment,
+}) {
+  const feedback = unwrap(
+    await supabase
+      .from('kk_accountant_feedback')
+      .insert({
+        problem_id: problemId,
+        accountant_id: accountantId,
+        accountant_name: accountantName,
+        situation_comment: situationComment,
+        solution_comment: solutionComment,
+      })
+      .select()
+      .single(),
+  )
+
+  await updateProblemStatus(problemId, STATUS.submitted_by_accountant)
+  return feedback
+}
+
+// ---- Review actions --------------------------------------------------------
+
+export async function fetchReviewActions(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_review_actions')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: false }),
+  )
+}
+
+// Record a reviewer action and update the problem status accordingly.
+export async function submitReviewAction({ problemId, reviewerName, action, reviewComment }) {
+  const record = unwrap(
+    await supabase
+      .from('kk_review_actions')
+      .insert({
+        problem_id: problemId,
+        reviewer_name: reviewerName || null,
+        action,
+        review_comment: reviewComment || null,
+      })
+      .select()
+      .single(),
+  )
+
+  // The action value maps 1:1 onto a problem status.
+  await updateProblemStatus(problemId, action)
+  return record
+}
