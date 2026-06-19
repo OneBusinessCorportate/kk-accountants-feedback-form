@@ -49,8 +49,12 @@ Loading / error / empty states and responsive layout are included throughout.
 ├─ .env.example                # template for the two required env vars
 ├─ public/
 │  └─ _redirects               # SPA fallback for Render (client-side routing)
+├─ scripts/
+│  ├─ sync-problems.mjs        # optional server-side ingestion runner (service_role)
+│  └─ .env.sync.example        # server-only secrets template for that runner
 ├─ supabase/
 │  ├─ migrations/0001_init.sql # schema: tables, indexes, trigger, RLS policies
+│  ├─ migrations/0002_problem_ingestion.sql # kk_ingest_problems() + pg_cron job
 │  └─ seed.sql                 # optional demo data
 └─ src/
    ├─ main.jsx                 # entry + BrowserRouter
@@ -59,6 +63,7 @@ Loading / error / empty states and responsive layout are included throughout.
    ├─ lib/
    │  ├─ supabaseClient.js     # Supabase client from env vars
    │  ├─ constants.js          # statuses, sources, labels
+   │  ├─ ingestion.js          # source→kk_problems field-mapping spec (pure fns)
    │  └─ api.js                # all data access (read/write helpers)
    ├─ components/
    │  ├─ StatusBadge.jsx
@@ -147,6 +152,46 @@ roles so the app works. This means anyone with the anon key and the URL can
 read/write these tables — acceptable for an internal-only deployment, but if you
 later expose it more widely, add Supabase Auth and tighten the policies (e.g.
 accountants only see their own rows, only managers can run review actions).
+
+---
+
+## 3b. Automatic problem ingestion (Sona + Margarita)
+
+Problems detected by the two QA systems land in the accountant's queue
+automatically — no copy-paste. **All three apps share the same Supabase project
+(OB FAQ, `fjsogozwseqoxgddjeig`)**, so ingestion is a pure in-database upsert; no
+extra service runs and no `service_role` key is shipped anywhere.
+
+[`supabase/migrations/0002_problem_ingestion.sql`](supabase/migrations/0002_problem_ingestion.sql)
+creates `public.kk_ingest_problems()` and schedules it every 10 minutes with
+`pg_cron`. It reads:
+
+| Source repo            | Source table     | `source`           | `problem_id`              |
+| ---------------------- | ---------------- | ------------------ | ------------------------- |
+| sona-qa-platform       | `sqa_tickets`    | `sona_review`      | `sona:<ticket_id>`        |
+| margarita-qa-platform  | `mqa_violations` | `margarita_review` | `margarita:<violation_id>`|
+
+`problem_id` is the source's stable primary key, prefixed by source — globally
+unique and stable across re-runs. Client name, chat name and chat link are
+enriched by joining `mqa_chats` on the contract number. The responsible
+accountant is the source's accountant **name** (neither system has a numeric id),
+used for both `accountant_name` and `accountant_id`.
+
+**Idempotent & safe:** the write is an `ON CONFLICT (problem_id) DO UPDATE` that
+refreshes only source-owned display columns. It never touches `status` (so an
+accountant's / reviewer's progress is never reset) and never touches
+`kk_accountant_feedback`. Re-running can never create duplicates.
+
+The mapping rules are also encoded as pure functions in
+[`src/lib/ingestion.js`](src/lib/ingestion.js) (the readable spec + unit tests in
+`ingestion.test.js`). The SQL function mirrors them — keep the two in sync.
+
+**Optional external runner.** If you'd rather trigger ingestion from a host cron
+or a button instead of `pg_cron`, run
+[`scripts/sync-problems.mjs`](scripts/sync-problems.mjs), which calls the same
+RPC. It needs `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (server-only — see
+`scripts/.env.sync.example`; these are git-ignored and never used by the
+frontend).
 
 ---
 
