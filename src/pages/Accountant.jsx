@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
-import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
+import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
 import {
   formatDate,
   formatAge,
@@ -8,8 +8,6 @@ import {
   problemContext,
   sortQueue,
 } from '../lib/presentation'
-import StatusBadge from '../components/StatusBadge'
-import PriorityBadge from '../components/PriorityBadge'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { useAuth } from '../lib/AuthContext'
 import { keepOwnProblems } from '../lib/scope'
@@ -124,6 +122,10 @@ function ProblemFeedbackCard({ problem, onSaved }) {
   const [error, setError] = useState(null)
 
   const canSave = situation.trim() !== '' && solution.trim() !== '' && !saving
+  // Only nudge once the accountant has started but left one field empty — a
+  // fresh, untouched card stays clean.
+  const showRequiredHint =
+    !saving && !canSave && (situation.trim() !== '' || solution.trim() !== '')
 
   async function handleSave() {
     setSaving(true)
@@ -165,8 +167,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
               </span>
             )}
           </h3>
-          <PriorityBadge priority={problem.priority} />
-          <StatusBadge status={problem.status} />
           {overdue && <span className="badge badge-red">Просрочено</span>}
         </div>
         {problem.chat_link && (
@@ -186,9 +186,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
           <span>
             Бухгалтер: <b>{problem.accountant_name}</b>
           </span>
-        )}
-        {problem.source && SOURCE_LABELS[problem.source] && (
-          <span>{SOURCE_LABELS[problem.source]}</span>
         )}
         {detected && (
           <span>
@@ -230,7 +227,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
         <button className="btn" disabled={!canSave} onClick={handleSave}>
           {saving ? 'Сохранение…' : 'Сохранить'}
         </button>
-        {!canSave && !saving && (
+        {showRequiredHint && (
           <span className="hint">Оба поля обязательны для сохранения.</span>
         )}
       </div>
