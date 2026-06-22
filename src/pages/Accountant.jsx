@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
-import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
+import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
 import {
   formatDate,
   formatAge,
@@ -10,7 +10,6 @@ import {
 } from '../lib/presentation'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
-import IdTip from '../components/IdTip'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 
 export default function Accountant() {
@@ -152,7 +151,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
           <PriorityBadge priority={problem.priority} />
           <StatusBadge status={problem.status} />
           {overdue && <span className="badge badge-red">Просрочено</span>}
-          <IdTip problemId={problem.problem_id} />
         </div>
         {problem.chat_link && (
           <a
@@ -171,6 +169,9 @@ function ProblemFeedbackCard({ problem, onSaved }) {
           <span>
             Бухгалтер: <b>{problem.accountant_name}</b>
           </span>
+        )}
+        {problem.source && SOURCE_LABELS[problem.source] && (
+          <span>{SOURCE_LABELS[problem.source]}</span>
         )}
         {detected && (
           <span>
