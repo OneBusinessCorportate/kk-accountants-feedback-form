@@ -1,7 +1,6 @@
 import { SOURCE_LABELS } from '../lib/constants'
 import { formatAge, formatDate, problemContext } from '../lib/presentation'
 import PriorityBadge from './PriorityBadge'
-import IdTip from './IdTip'
 
 // Compact metadata row for the review (manager) card. Unlike the accountant
 // view, the manager DOES see the source (who flagged the problem).
@@ -40,7 +39,6 @@ export default function ProblemMeta({ problem, showSource = true }) {
             {age && <span className="age"> · {age}</span>}
           </span>
         )}
-        <IdTip problemId={problem.problem_id} />
         {problem.chat_link && (
           <span>
             <a href={problem.chat_link} target="_blank" rel="noreferrer">
