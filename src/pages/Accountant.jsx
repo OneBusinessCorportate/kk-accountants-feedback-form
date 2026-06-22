@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
 import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
+import { formatDate, problemContext } from '../lib/presentation'
 import StatusBadge from '../components/StatusBadge'
-import ProblemMeta from '../components/ProblemMeta'
+import PriorityBadge from '../components/PriorityBadge'
+import IdTip from '../components/IdTip'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 
 export default function Accountant() {
@@ -94,14 +96,55 @@ function ProblemFeedbackCard({ problem, onSaved }) {
     }
   }
 
+  const context = problemContext(problem)
+  const detected = formatDate(problem.detected_at)
+
   return (
     <div className="card">
-      <div className="card-head">
-        <h3 className="card-title">{problem.problem_title || problem.problem_id}</h3>
-        <StatusBadge status={problem.status} />
+      <div className="card-head-line">
+        <div className="head-left">
+          <h3 className="card-title">
+            {problem.problem_title || problem.problem_id}
+            {problem.client_name && (
+              <span className="title-client">
+                {' — '}
+                {problem.client_name}
+                {problem.contract_id && (
+                  <span className="contract-id"> {problem.contract_id}</span>
+                )}
+              </span>
+            )}
+          </h3>
+          <PriorityBadge priority={problem.priority} />
+          <StatusBadge status={problem.status} />
+          <IdTip problemId={problem.problem_id} />
+        </div>
+        {problem.chat_link && (
+          <a
+            className="head-right"
+            href={problem.chat_link}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Открыть чат{problem.chat_name ? ` (${problem.chat_name})` : ''} ↗
+          </a>
+        )}
       </div>
 
-      <ProblemMeta problem={problem} />
+      <div className="meta">
+        {problem.accountant_name && (
+          <span>
+            Бухгалтер: <b>{problem.accountant_name}</b>
+          </span>
+        )}
+        {detected && (
+          <span>
+            Обнаружено: <b>{detected}</b>
+          </span>
+        )}
+      </div>
+
+      {context && <div className="description">{context}</div>}
 
       <ErrorMessage error={error} />
 

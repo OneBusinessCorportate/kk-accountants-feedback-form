@@ -1,29 +1,44 @@
-import { SOURCE_LABELS, PRIORITY_LABELS } from '../lib/constants'
+import { SOURCE_LABELS } from '../lib/constants'
+import { formatDate, problemContext } from '../lib/presentation'
+import PriorityBadge from './PriorityBadge'
+import IdTip from './IdTip'
 
-// Compact metadata row reused by the accountant + review cards.
-export default function ProblemMeta({ problem }) {
+// Compact metadata row for the review (manager) card. Unlike the accountant
+// view, the manager DOES see the source (who flagged the problem).
+export default function ProblemMeta({ problem, showSource = true }) {
+  const context = problemContext(problem)
+  const detected = formatDate(problem.detected_at)
+
   return (
     <>
       <div className="meta">
-        <span>
-          ID: <b>{problem.problem_id}</b>
-        </span>
         {problem.client_name && (
           <span>
             Клиент: <b>{problem.client_name}</b>
+            {problem.contract_id && (
+              <span className="contract-id"> {problem.contract_id}</span>
+            )}
           </span>
         )}
         <span>
-          Источник: <b>{SOURCE_LABELS[problem.source] || problem.source}</b>
+          Приоритет: <PriorityBadge priority={problem.priority} />
         </span>
-        <span>
-          Приоритет: <b>{PRIORITY_LABELS[problem.priority] || problem.priority}</b>
-        </span>
+        {showSource && (
+          <span>
+            Источник: <b>{SOURCE_LABELS[problem.source] || problem.source}</b>
+          </span>
+        )}
         {problem.accountant_name && (
           <span>
             Бухгалтер: <b>{problem.accountant_name}</b>
           </span>
         )}
+        {detected && (
+          <span>
+            Обнаружено: <b>{detected}</b>
+          </span>
+        )}
+        <IdTip problemId={problem.problem_id} />
         {problem.chat_link && (
           <span>
             <a href={problem.chat_link} target="_blank" rel="noreferrer">
@@ -32,15 +47,7 @@ export default function ProblemMeta({ problem }) {
           </span>
         )}
       </div>
-      {problem.problem_description && (
-        <div className="description">{problem.problem_description}</div>
-      )}
-      {problem.ai_comment && (
-        <div className="kv">
-          <div className="k">Комментарий AI / проверки</div>
-          <div className="v">{problem.ai_comment}</div>
-        </div>
-      )}
+      {context && <div className="description">{context}</div>}
     </>
   )
 }
