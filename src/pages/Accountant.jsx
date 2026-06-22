@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
 import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
 import {
@@ -19,6 +19,9 @@ export default function Accountant() {
   const [problems, setProblems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Monotonic request id so changing the accountant filter quickly can't let a
+  // stale response overwrite a newer one, and unmounted writes are dropped.
+  const reqRef = useRef(0)
 
   useEffect(() => {
     fetchAccountants()
@@ -27,18 +30,25 @@ export default function Accountant() {
   }, [])
 
   function load() {
+    const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
     fetchProblems({
       accountantId: accountantId || undefined,
       statusIn: ACCOUNTANT_ACTIONABLE,
     })
-      .then(setProblems)
-      .catch((e) => setError(e))
-      .finally(() => setLoading(false))
+      .then((data) => reqId === reqRef.current && setProblems(data))
+      .catch((e) => reqId === reqRef.current && setError(e))
+      .finally(() => reqId === reqRef.current && setLoading(false))
   }
 
-  useEffect(load, [accountantId])
+  useEffect(() => {
+    load()
+    // Invalidate any in-flight request on unmount / before the next load.
+    return () => {
+      reqRef.current++
+    }
+  }, [accountantId])
 
   // Most urgent / longest-waiting first, and count what's overdue.
   const ordered = useMemo(() => sortQueue(problems), [problems])
@@ -113,6 +123,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       onSaved()
     } catch (e) {
       setError(e)
+    } finally {
       setSaving(false)
     }
   }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   fetchProblems,
   fetchFeedback,
@@ -16,20 +16,30 @@ export default function Review() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showResolved, setShowResolved] = useState(false)
+  // Monotonic request id so a slow, stale response can never overwrite a newer
+  // one (e.g. toggling the checkbox quickly) and unmounted writes are dropped.
+  const reqRef = useRef(0)
 
   function load() {
+    const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
     const statusIn = showResolved
       ? [...REVIEW_QUEUE, STATUS.fixed, STATUS.explained_accepted, STATUS.returned_to_accountant]
       : REVIEW_QUEUE
     fetchProblems({ statusIn })
-      .then(setProblems)
-      .catch((e) => setError(e))
-      .finally(() => setLoading(false))
+      .then((data) => reqId === reqRef.current && setProblems(data))
+      .catch((e) => reqId === reqRef.current && setError(e))
+      .finally(() => reqId === reqRef.current && setLoading(false))
   }
 
-  useEffect(load, [showResolved])
+  useEffect(() => {
+    load()
+    // Invalidate any in-flight request on unmount / before the next load.
+    return () => {
+      reqRef.current++
+    }
+  }, [showResolved])
 
   return (
     <div>
@@ -73,14 +83,21 @@ function ReviewCard({ problem, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
 
+  // Re-fetch when the status changes too, so that after an action the decision
+  // history updates even while the card stays visible (resolved view).
   useEffect(() => {
+    let ignore = false
     Promise.all([fetchFeedback(problem.problem_id), fetchReviewActions(problem.problem_id)])
       .then(([fb, ac]) => {
+        if (ignore) return
         setFeedback(fb)
         setActions(ac)
       })
-      .catch((e) => setError(e))
-  }, [problem.problem_id])
+      .catch((e) => !ignore && setError(e))
+    return () => {
+      ignore = true
+    }
+  }, [problem.problem_id, problem.status])
 
   async function act(action) {
     if (action === STATUS.returned_to_accountant && reviewComment.trim() === '') {
@@ -96,9 +113,12 @@ function ReviewCard({ problem, onChanged }) {
         action,
         reviewComment: reviewComment.trim(),
       })
+      setReviewComment('')
       onChanged()
     } catch (e) {
       setError(e)
+    } finally {
+      // Always release the buttons — the card may stay mounted (resolved view).
       setBusy(false)
     }
   }
