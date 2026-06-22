@@ -13,6 +13,14 @@ import {
   ACCOUNTANT_ALIASES,
   normalizeAccountant,
   resolveAccountant,
+  QA_SOURCE,
+  QA_PROBLEM_TITLES,
+  telegramChatLink,
+  qaProblemId,
+  unansweredPriority,
+  mapUnansweredChat,
+  mapLateChat,
+  mapOverduePromise,
 } from './ingestion'
 import { SOURCES, STATUS } from './constants'
 
@@ -165,6 +173,87 @@ describe('resolveAccountant (source name → real employee)', () => {
 
   it('normalizeAccountant trims, lowercases and collapses whitespace', () => {
     expect(normalizeAccountant('  Naira   Mkhitaryan ')).toBe('naira mkhitaryan')
+  })
+})
+
+describe('live QA detections (unanswered / late / promise)', () => {
+  it('builds stable, per-accountant ids and telegram links', () => {
+    expect(qaProblemId('unanswered', -55, 'emp-1')).toBe('unanswered:-55:emp-1')
+    expect(qaProblemId('promise', -55)).toBe('promise:-55')
+    expect(telegramChatLink(-4985861737)).toBe('https://web.telegram.org/a/#-4985861737')
+    expect(telegramChatLink(null)).toBeNull()
+  })
+
+  it('maps unanswered severity to priority (minor/data-incomplete never critical)', () => {
+    expect(unansweredPriority('critical')).toBe(1)
+    expect(unansweredPriority('minor')).toBe(3)
+    expect(unansweredPriority(undefined)).toBe(2)
+  })
+
+  it('maps an unanswered chat to a kk_problems row for the resolved accountant', () => {
+    const p = mapUnansweredChat(
+      {
+        chat_id: -5175454837,
+        chat_name: 'Bookkeeping B-4479',
+        problematic_client_message: 'Добрый день! можете попросить курс?',
+        oldest_pending_at: '2026-06-22T05:13:29+00:00',
+        severity: 'critical',
+        flag_reason: 'no_staff_reply_after_client_question',
+      },
+      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Accounting' },
+    )
+    expect(p.problem_id).toBe('unanswered:-5175454837:2b22a577-7683-4f22-9834-c957312da4bc')
+    expect(p.source).toBe(QA_SOURCE)
+    expect(p.problem_title).toBe(QA_PROBLEM_TITLES.unanswered)
+    expect(p.accountant_name).toBe('Olya Accounting')
+    expect(p.priority).toBe(1)
+    expect(p.chat_link).toBe('https://web.telegram.org/a/#-5175454837')
+    expect(p.status).toBe(INGEST_STATUS)
+  })
+
+  it('leaves an unanswered chat unassigned when no accountant resolved', () => {
+    const p = mapUnansweredChat({ chat_id: -1, chat_name: 'X', severity: 'minor' })
+    expect(p.problem_id).toBe('unanswered:-1')
+    expect(p.accountant_id).toBeNull()
+    expect(p.priority).toBe(3)
+  })
+
+  it('maps a late-answer chat using the responder as accountant', () => {
+    const p = mapLateChat(
+      {
+        chat_id: -5279829070,
+        chat_name: 'Բատրիշա ՍՊԸ/B-4086 AM',
+        client_name: 'Ani',
+        oldest_pending_text: 'Կուղարկե՞ք հաշվետվություն',
+        request_time: '2026-06-20T11:52:49+00:00',
+        flag_reason: 'answered_but_after_sla',
+      },
+      { accountant_id: '6e60a1f3-2869-4e02-ba38-d00e6e2edb83', accountant_name: 'Stella Accounting' },
+    )
+    expect(p.problem_id).toBe('late:-5279829070')
+    expect(p.problem_title).toBe(QA_PROBLEM_TITLES.late)
+    expect(p.client_name).toBe('Ani')
+    expect(p.accountant_name).toBe('Stella Accounting')
+    expect(p.detected_at).toBe('2026-06-20T11:52:49+00:00')
+  })
+
+  it('maps an overdue promise and never invents an owner', () => {
+    const p = mapOverduePromise({
+      chat_id: -4082607480,
+      chat_name: 'Мишт Тей OOO N-11 RU',
+      promise_text: 'Завтра я позвоню и попрошу…',
+      promise_time: '2026-06-18T14:31:27+00:00',
+      flag_reason: 'employee_promise_overdue',
+    })
+    expect(p.problem_id).toBe('promise:-4082607480')
+    expect(p.problem_title).toBe(QA_PROBLEM_TITLES.promise)
+    expect(p.accountant_id).toBeNull()
+    expect(p.accountant_name).toBeNull()
+    expect(p.problem_description).toBe('Завтра я позвоню и попрошу…')
+  })
+
+  it('only emits the AI source allowed by the schema', () => {
+    expect(SOURCES).toContain(QA_SOURCE)
   })
 })
 

@@ -19,8 +19,17 @@ React + Vite frontend, Supabase (Postgres) backend, deployed on Render as a Stat
 
 ## Accountant identity & ingestion (use ONLY valid employees)
 
-Problems are created by `kk_ingest_problems()` from the Sona (`sqa_tickets`) and
-Margarita (`mqa_violations`) QA systems in the same project. Those sources record
+Problems are created by `kk_ingest_problems()` from (a) the manual Sona
+(`sqa_tickets`) and Margarita (`mqa_violations`) reviews and (b) the **live QA
+detection RPCs** that power the dashboards — `qa_unanswered_chats` («Без ответа»),
+`qa_answered_late_chats` («Поздний ответ») and `qa_overdue_promises`
+(«Невыполненное обещание») — see `supabase/migrations/0004_qa_detection_ingestion.sql`.
+The RPCs each return a JSON **array** (not `{key: array}`). Unanswered chats create
+one problem PER named accountant (so every responsible accountant sees it);
+`kk_resolve_employee()` resolves the chat-named accountant to an employee (full_name
+→ alias → space-insensitive). Promises name no one → unassigned (supervisors only).
+`src/lib/ingestion.js` mirrors these as `mapUnansweredChat`/`mapLateChat`/`mapOverduePromise`
+for spec + tests. Those sources record
 the accountant only by a **short localized name** (e.g. Armenian `Օлия`), which does
 NOT match `employees.full_name` (`Olya Accounting`). Since per-accountant scoping
 keys off the employee identity, every source name MUST be resolved to a real

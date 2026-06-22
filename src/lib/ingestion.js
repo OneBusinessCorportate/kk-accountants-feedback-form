@@ -184,3 +184,106 @@ export const UPSERT_REFRESH_COLUMNS = [
   'ai_comment',
   'detected_at',
 ]
+
+// ---- Live QA detections (qa_* RPCs) ----------------------------------------
+// Besides the manual Sona/Margarita reviews above, kk_ingest_problems() also
+// ingests the live detections that power the dashboards, so «без ответа»,
+// «поздний ответ» and broken promises all appear in the feedback form:
+//   qa_unanswered_chats     → 'Без ответа клиенту'
+//   qa_answered_late_chats  → 'Поздний ответ клиенту'
+//   qa_overdue_promises     → 'Невыполненное обещание (не отправлено)'
+// These come from RPCs (no source table), so the production path is SQL
+// (migration 0004). The mappers below mirror that SQL for spec + regression
+// tests. The accountant is resolved in SQL (kk_resolve_employee, by chat-named
+// accountant → employee); here it is passed in as { accountant_id,
+// accountant_name } (both null when the RPC names nobody, e.g. promises).
+
+// These are AI-detected, so they use the 'ai' source (see SOURCES/constants).
+export const QA_SOURCE = 'ai'
+
+export const QA_PROBLEM_TITLES = {
+  unanswered: 'Без ответа клиенту',
+  late: 'Поздний ответ клиенту',
+  promise: 'Невыполненное обещание (не отправлено)',
+}
+
+const NO_ACCOUNTANT = { accountant_id: null, accountant_name: null }
+
+// Telegram deep link for a chat id (matches the SQL link expression).
+export function telegramChatLink(chatId) {
+  return chatId == null ? null : `https://web.telegram.org/a/#${chatId}`
+}
+
+// Stable, globally-unique problem_id. Unanswered chats get one problem PER
+// responsible accountant (so each sees it), hence the optional employee suffix.
+export function qaProblemId(kind, chatId, employeeId = null) {
+  const base = `${kind}:${chatId}`
+  return employeeId ? `${base}:${employeeId}` : base
+}
+
+// Unanswered severity → priority (1 high / 2 medium / 3 low). data_incomplete /
+// needs-review rows come through as 'minor' → low, never as a critical.
+export function unansweredPriority(severity) {
+  if (severity === 'critical') return 1
+  if (severity === 'minor') return 3
+  return 2
+}
+
+export function mapUnansweredChat(item = {}, accountant = NO_ACCOUNTANT) {
+  return {
+    problem_id: qaProblemId('unanswered', item.chat_id, accountant.accountant_id),
+    source: QA_SOURCE,
+    client_name: firstText(item.chat_name),
+    contract_id: null,
+    chat_name: firstText(item.chat_name),
+    chat_link: telegramChatLink(item.chat_id),
+    accountant_name: accountant.accountant_name ?? null,
+    accountant_id: accountant.accountant_id ?? null,
+    priority: unansweredPriority(item.severity),
+    problem_title: QA_PROBLEM_TITLES.unanswered,
+    problem_description: firstText(item.problematic_client_message),
+    ai_comment: firstText(item.flag_reason),
+    detected_at: item.oldest_pending_at ?? null,
+    status: INGEST_STATUS,
+  }
+}
+
+export function mapLateChat(item = {}, accountant = NO_ACCOUNTANT) {
+  return {
+    problem_id: qaProblemId('late', item.chat_id),
+    source: QA_SOURCE,
+    client_name: firstText(item.client_name, item.chat_name),
+    contract_id: null,
+    chat_name: firstText(item.chat_name),
+    chat_link: telegramChatLink(item.chat_id),
+    accountant_name: accountant.accountant_name ?? null,
+    accountant_id: accountant.accountant_id ?? null,
+    priority: 2,
+    problem_title: QA_PROBLEM_TITLES.late,
+    problem_description: firstText(item.oldest_pending_text),
+    ai_comment: firstText(item.flag_reason),
+    detected_at: item.request_time ?? null,
+    status: INGEST_STATUS,
+  }
+}
+
+export function mapOverduePromise(item = {}) {
+  return {
+    problem_id: qaProblemId('promise', item.chat_id),
+    source: QA_SOURCE,
+    client_name: firstText(item.chat_name),
+    contract_id: null,
+    chat_name: firstText(item.chat_name),
+    chat_link: telegramChatLink(item.chat_id),
+    // The RPC names no accountant for promises → stays unassigned (supervisors
+    // still see it). Never invent an owner.
+    accountant_name: null,
+    accountant_id: null,
+    priority: 2,
+    problem_title: QA_PROBLEM_TITLES.promise,
+    problem_description: firstText(item.promise_text),
+    ai_comment: firstText(item.flag_reason),
+    detected_at: item.promise_time ?? null,
+    status: INGEST_STATUS,
+  }
+}
