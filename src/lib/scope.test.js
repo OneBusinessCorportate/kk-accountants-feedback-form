@@ -32,6 +32,16 @@ describe('seesAllClients', () => {
   it('honours the can_see_all override regardless of role', () => {
     expect(seesAllClients({ role: 'accountant', can_see_all: true })).toBe(true)
   })
+
+  it('is defensive about role casing / whitespace', () => {
+    expect(seesAllClients({ role: ' Admin ', can_see_all: false })).toBe(true)
+    expect(seesAllClients({ role: 'HEAD_ACCOUNTANT' })).toBe(true)
+  })
+
+  it('treats an unknown role as scoped', () => {
+    expect(seesAllClients({ role: 'intern' })).toBe(false)
+    expect(seesAllClients({ role: null })).toBe(false)
+  })
 })
 
 describe('canManage', () => {
@@ -87,5 +97,17 @@ describe('keepOwnProblems', () => {
   it('tolerates null/undefined input', () => {
     expect(keepOwnProblems(null, accountant)).toEqual([])
     expect(keepOwnProblems(undefined, { role: 'admin' })).toEqual([])
+  })
+
+  it('does not mutate the input array', () => {
+    const input = [...rows]
+    keepOwnProblems(input, accountant)
+    expect(input).toHaveLength(3)
+    expect(input).toEqual(rows)
+  })
+
+  it('scopes a can_see_all accountant as a supervisor (sees all)', () => {
+    const seeAll = { ...accountant, can_see_all: true }
+    expect(keepOwnProblems(rows, seeAll)).toHaveLength(3)
   })
 })

@@ -3,6 +3,8 @@ import { Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { supabaseConfigError } from './lib/supabaseClient'
 import { getStoredCode, resolveCode, signOut as authSignOut } from './lib/auth'
 import { seesAllClients, canManage } from './lib/scope'
+import { visibleNavLinks } from './lib/nav'
+import { roleLabel } from './lib/constants'
 import { AuthContext } from './lib/AuthContext'
 import LoginScreen from './components/LoginScreen.jsx'
 import LoadingScreen from './components/LoadingScreen.jsx'
@@ -11,17 +13,6 @@ import Dashboard from './pages/Dashboard.jsx'
 import Accountant from './pages/Accountant.jsx'
 import Review from './pages/Review.jsx'
 import Admin from './pages/Admin.jsx'
-
-const ROLE_LABELS = {
-  accountant: 'Бухгалтер',
-  head_accountant: 'Главный бухгалтер',
-  manager: 'Менеджер',
-  lawyer: 'Юрист',
-  ceo: 'CEO',
-  founder: 'Основатель',
-  qa: 'QA',
-  admin: 'Администратор',
-}
 
 export default function App() {
   // Auth gate state machine: loading → (anon | authed | error).
@@ -94,14 +85,8 @@ export default function App() {
   const supervisor = seesAllClients(access)
   const manage = canManage(access)
 
-  const links = [
-    { to: '/', label: 'Дашборд', end: true, show: true },
-    { to: '/accountant', label: 'Бухгалтер', show: true },
-    { to: '/review', label: 'Проверка', show: manage },
-    { to: '/admin', label: 'Админ', show: manage },
-  ].filter((l) => l.show)
-
-  const roleLabel = ROLE_LABELS[access?.role] || access?.role
+  const links = visibleNavLinks(manage)
+  const roleText = roleLabel(access?.role)
 
   return (
     <AuthContext.Provider
@@ -119,7 +104,7 @@ export default function App() {
           </nav>
           <div className="topbar-user">
             <span className="user-name">{access?.full_name || 'Сотрудник'}</span>
-            {roleLabel && <span className="badge badge-gray">{roleLabel}</span>}
+            {roleText && <span className="badge badge-gray">{roleText}</span>}
             <button className="btn btn-secondary btn-sm" onClick={handleSignOut}>
               Выйти
             </button>

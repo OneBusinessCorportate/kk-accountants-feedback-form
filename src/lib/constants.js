@@ -44,3 +44,24 @@ export const PRIORITY_LABELS = {
   2: 'Средний',
   3: 'Низкий',
 }
+
+// Employee roles (from the shared employees table / resolve_login_code) shown
+// in the topbar after login. Kept here with the other display labels.
+export const ROLE_LABELS = {
+  accountant: 'Бухгалтер',
+  head_accountant: 'Главный бухгалтер',
+  manager: 'Менеджер',
+  lawyer: 'Юрист',
+  qa: 'QA',
+  ceo: 'CEO',
+  founder: 'Основатель',
+  admin: 'Администратор',
+}
+
+// Human label for a role, falling back to the raw value for unknown roles so
+// the UI never shows a blank. Matching is case-insensitive / trimmed.
+export function roleLabel(role) {
+  if (role == null) return ''
+  const key = role.toString().trim().toLowerCase()
+  return ROLE_LABELS[key] || role
+}

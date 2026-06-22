@@ -7,7 +7,10 @@ import {
   ACCOUNTANT_ACTIONABLE,
   REVIEW_QUEUE,
   PRIORITY_LABELS,
+  ROLE_LABELS,
+  roleLabel,
 } from './constants'
+import { SUPERVISOR_ROLES } from './scope'
 
 describe('constants integrity', () => {
   it('every status has a human label', () => {
@@ -31,5 +34,31 @@ describe('constants integrity', () => {
 
   it('covers the three priority levels', () => {
     expect(Object.keys(PRIORITY_LABELS).sort()).toEqual(['1', '2', '3'])
+  })
+
+  it('every supervisor role has a human label', () => {
+    for (const role of SUPERVISOR_ROLES) {
+      expect(ROLE_LABELS[role], `missing label for role "${role}"`).toBeTruthy()
+    }
+  })
+})
+
+describe('roleLabel', () => {
+  it('maps known roles to their Russian label', () => {
+    expect(roleLabel('accountant')).toBe('Бухгалтер')
+    expect(roleLabel('head_accountant')).toBe('Главный бухгалтер')
+  })
+
+  it('is case-insensitive / trims', () => {
+    expect(roleLabel(' Admin ')).toBe('Администратор')
+  })
+
+  it('falls back to the raw value for an unknown role', () => {
+    expect(roleLabel('intern')).toBe('intern')
+  })
+
+  it('returns an empty string for null/undefined', () => {
+    expect(roleLabel(null)).toBe('')
+    expect(roleLabel(undefined)).toBe('')
   })
 })

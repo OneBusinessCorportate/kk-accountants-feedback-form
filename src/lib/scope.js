@@ -28,6 +28,13 @@ function normName(v) {
   return (v ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+// Normalize a role the same way: roles from resolve_login_code are lowercase,
+// but trimming/lowercasing defensively keeps the gates correct if that ever
+// drifts (e.g. " Admin ").
+function normRole(role) {
+  return (role ?? '').toString().trim().toLowerCase()
+}
+
 /**
  * Does this user see every problem (no scoping)?
  * @param access {employee_id, full_name, role, can_see_all} | null
@@ -35,7 +42,7 @@ function normName(v) {
 export function seesAllClients(access) {
   if (!access) return false
   if (access.can_see_all) return true
-  return SUPERVISOR_ROLES.has(access.role)
+  return SUPERVISOR_ROLES.has(normRole(access.role))
 }
 
 /**
