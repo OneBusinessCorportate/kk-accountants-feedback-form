@@ -4,6 +4,10 @@ import {
   priorityLabel,
   problemContext,
   formatDate,
+  daysSince,
+  formatAge,
+  isOverdue,
+  sortQueue,
 } from './presentation'
 
 describe('priority helpers', () => {
@@ -69,5 +73,64 @@ describe('formatDate', () => {
     expect(formatDate(null)).toBe('')
     expect(formatDate(undefined)).toBe('')
     expect(formatDate('not-a-date')).toBe('')
+  })
+})
+
+describe('aging', () => {
+  const now = new Date('2026-06-22T12:00:00Z')
+
+  it('counts whole days waited', () => {
+    expect(daysSince('2026-06-22T00:00:00Z', now)).toBe(0)
+    expect(daysSince('2026-06-20T12:00:00Z', now)).toBe(2)
+    expect(daysSince(null, now)).toBeNull()
+    expect(daysSince('nonsense', now)).toBeNull()
+  })
+
+  it('renders a human age with correct russian plurals', () => {
+    expect(formatAge('2026-06-22T08:00:00Z', now)).toBe('сегодня')
+    expect(formatAge('2026-06-21T08:00:00Z', now)).toBe('вчера')
+    expect(formatAge('2026-06-19T08:00:00Z', now)).toBe('3 дня назад')
+    expect(formatAge('2026-06-14T08:00:00Z', now)).toBe('8 дней назад')
+    expect(formatAge('2026-06-01T08:00:00Z', now)).toBe('21 день назад')
+  })
+})
+
+describe('isOverdue', () => {
+  const now = new Date('2026-06-22T12:00:00Z')
+
+  it('uses a tighter response target for higher priority', () => {
+    // High priority breaches after 1 day.
+    expect(isOverdue({ priority: 1, detected_at: '2026-06-21T08:00:00Z' }, now)).toBe(true)
+    expect(isOverdue({ priority: 1, detected_at: '2026-06-22T08:00:00Z' }, now)).toBe(false)
+    // Low priority gets a week.
+    expect(isOverdue({ priority: 3, detected_at: '2026-06-19T08:00:00Z' }, now)).toBe(false)
+    expect(isOverdue({ priority: 3, detected_at: '2026-06-10T08:00:00Z' }, now)).toBe(true)
+  })
+
+  it('is false when there is no date to age from', () => {
+    expect(isOverdue({ priority: 1 }, now)).toBe(false)
+  })
+})
+
+describe('sortQueue', () => {
+  it('orders by priority, then oldest first, without mutating input', () => {
+    const input = [
+      { problem_id: 'a', priority: 2, detected_at: '2026-06-20T00:00:00Z' },
+      { problem_id: 'b', priority: 1, detected_at: '2026-06-21T00:00:00Z' },
+      { problem_id: 'c', priority: 1, detected_at: '2026-06-19T00:00:00Z' },
+      { problem_id: 'd', priority: 3, detected_at: '2026-06-18T00:00:00Z' },
+    ]
+    const order = sortQueue(input).map((p) => p.problem_id)
+    expect(order).toEqual(['c', 'b', 'a', 'd'])
+    // original array untouched
+    expect(input.map((p) => p.problem_id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('falls back to created_at and pushes missing priorities last', () => {
+    const input = [
+      { problem_id: 'x', created_at: '2026-06-20T00:00:00Z' },
+      { problem_id: 'y', priority: 2, created_at: '2026-06-21T00:00:00Z' },
+    ]
+    expect(sortQueue(input).map((p) => p.problem_id)).toEqual(['y', 'x'])
   })
 })

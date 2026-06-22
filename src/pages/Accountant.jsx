@@ -1,7 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
 import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
-import { formatDate, problemContext } from '../lib/presentation'
+import {
+  formatDate,
+  formatAge,
+  isOverdue,
+  problemContext,
+  sortQueue,
+} from '../lib/presentation'
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
 import IdTip from '../components/IdTip'
@@ -34,6 +40,13 @@ export default function Accountant() {
 
   useEffect(load, [accountantId])
 
+  // Most urgent / longest-waiting first, and count what's overdue.
+  const ordered = useMemo(() => sortQueue(problems), [problems])
+  const overdueCount = useMemo(
+    () => problems.filter((p) => isOverdue(p)).length,
+    [problems],
+  )
+
   return (
     <div>
       <h1 className="page-title">Бухгалтер</h1>
@@ -62,9 +75,17 @@ export default function Accountant() {
       ) : problems.length === 0 ? (
         <Empty text="Нет проблем, ожидающих заполнения." />
       ) : (
-        problems.map((p) => (
-          <ProblemFeedbackCard key={p.problem_id} problem={p} onSaved={load} />
-        ))
+        <>
+          <div className="queue-summary">
+            В очереди: <b>{problems.length}</b>
+            {overdueCount > 0 && (
+              <span className="badge badge-red">Просрочено: {overdueCount}</span>
+            )}
+          </div>
+          {ordered.map((p) => (
+            <ProblemFeedbackCard key={p.problem_id} problem={p} onSaved={load} />
+          ))}
+        </>
       )}
     </div>
   )
@@ -98,9 +119,11 @@ function ProblemFeedbackCard({ problem, onSaved }) {
 
   const context = problemContext(problem)
   const detected = formatDate(problem.detected_at)
+  const age = formatAge(problem.detected_at)
+  const overdue = isOverdue(problem)
 
   return (
-    <div className="card">
+    <div className={`card card-prio-${problem.priority || 2}`}>
       <div className="card-head-line">
         <div className="head-left">
           <h3 className="card-title">
@@ -117,6 +140,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
           </h3>
           <PriorityBadge priority={problem.priority} />
           <StatusBadge status={problem.status} />
+          {overdue && <span className="badge badge-red">Просрочено</span>}
           <IdTip problemId={problem.problem_id} />
         </div>
         {problem.chat_link && (
@@ -140,6 +164,9 @@ function ProblemFeedbackCard({ problem, onSaved }) {
         {detected && (
           <span>
             Обнаружено: <b>{detected}</b>
+            {age && (
+              <span className={overdue ? 'age age-overdue' : 'age'}> · {age}</span>
+            )}
           </span>
         )}
       </div>

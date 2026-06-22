@@ -111,12 +111,45 @@ a:hover {
   margin-bottom: 16px;
 }
 
+/* Priority accent on the left edge for fast scanning of the queue. */
+.card-prio-1 {
+  border-left: 4px solid var(--red);
+}
+.card-prio-2 {
+  border-left: 4px solid var(--amber);
+}
+.card-prio-3 {
+  border-left: 4px solid var(--border);
+}
+
 .card-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
   margin-bottom: 8px;
+}
+
+/* Queue backlog summary above the cards. */
+.queue-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.queue-summary b {
+  color: var(--text);
+}
+
+/* Age of a problem next to its detection date. */
+.age {
+  color: var(--muted);
+}
+.age-overdue {
+  color: var(--red);
+  font-weight: 600;
 }
 
 .card-title {
@@ -208,6 +241,14 @@ a:hover {
   color: var(--muted);
   font-size: 13px;
   margin-top: 4px;
+}
+/* Draw the eye to an overdue backlog. */
+.stat-alert {
+  border-color: #f5c2c2;
+  background: #fef5f5;
+}
+.stat-alert .num {
+  color: var(--red);
 }
 
 /* ---- Badges ---- */

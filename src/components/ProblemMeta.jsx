@@ -1,5 +1,5 @@
 import { SOURCE_LABELS } from '../lib/constants'
-import { formatDate, problemContext } from '../lib/presentation'
+import { formatAge, formatDate, problemContext } from '../lib/presentation'
 import PriorityBadge from './PriorityBadge'
 import IdTip from './IdTip'
 
@@ -8,6 +8,7 @@ import IdTip from './IdTip'
 export default function ProblemMeta({ problem, showSource = true }) {
   const context = problemContext(problem)
   const detected = formatDate(problem.detected_at)
+  const age = formatAge(problem.detected_at)
 
   return (
     <>
@@ -36,6 +37,7 @@ export default function ProblemMeta({ problem, showSource = true }) {
         {detected && (
           <span>
             Обнаружено: <b>{detected}</b>
+            {age && <span className="age"> · {age}</span>}
           </span>
         )}
         <IdTip problemId={problem.problem_id} />

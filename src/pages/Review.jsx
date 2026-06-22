@@ -6,6 +6,7 @@ import {
   submitReviewAction,
 } from '../lib/api'
 import { REVIEW_QUEUE, STATUS, STATUS_LABELS } from '../lib/constants'
+import { sortQueue } from '../lib/presentation'
 import StatusBadge from '../components/StatusBadge'
 import ProblemMeta from '../components/ProblemMeta'
 import { Loading, ErrorMessage, Empty } from '../components/States'
@@ -56,7 +57,9 @@ export default function Review() {
       ) : problems.length === 0 ? (
         <Empty text="Нет проблем на проверке." />
       ) : (
-        problems.map((p) => <ReviewCard key={p.problem_id} problem={p} onChanged={load} />)
+        sortQueue(problems).map((p) => (
+          <ReviewCard key={p.problem_id} problem={p} onChanged={load} />
+        ))
       )}
     </div>
   )
