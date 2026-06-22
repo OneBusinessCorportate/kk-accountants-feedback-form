@@ -62,6 +62,15 @@ describe('problemContext', () => {
     expect(ctx).not.toContain('sona')
     expect(ctx).not.toContain('review')
   })
+
+  it('hides a raw detection flag (snake_case) — it duplicates the title', () => {
+    const ctx = problemContext({
+      problem_description: 'Добрый день! можете попросить курс?',
+      ai_comment: 'no_staff_reply_after_client_question',
+    })
+    expect(ctx).toBe('Добрый день! можете попросить курс?')
+    expect(ctx).not.toContain('no_staff_reply')
+  })
 })
 
 describe('formatDate', () => {

@@ -3,7 +3,6 @@ import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../li
 import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
 import {
   formatDate,
-  formatAge,
   isOverdue,
   problemContext,
   sortQueue,
@@ -148,7 +147,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
 
   const context = problemContext(problem)
   const detected = formatDate(problem.detected_at)
-  const age = formatAge(problem.detected_at)
   const overdue = isOverdue(problem)
 
   return (
@@ -160,7 +158,13 @@ function ProblemFeedbackCard({ problem, onSaved }) {
             {problem.client_name && (
               <span className="title-client">
                 {' — '}
-                {problem.client_name}
+                {problem.chat_link ? (
+                  <a href={problem.chat_link} target="_blank" rel="noreferrer">
+                    {problem.client_name}
+                  </a>
+                ) : (
+                  problem.client_name
+                )}
                 {problem.contract_id && (
                   <span className="contract-id"> {problem.contract_id}</span>
                 )}
@@ -176,7 +180,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
             target="_blank"
             rel="noreferrer"
           >
-            Открыть чат{problem.chat_name ? ` (${problem.chat_name})` : ''} ↗
+            Открыть ↗
           </a>
         )}
       </div>
@@ -190,9 +194,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
         {detected && (
           <span>
             Обнаружено: <b>{detected}</b>
-            {age && (
-              <span className={overdue ? 'age age-overdue' : 'age'}> · {age}</span>
-            )}
           </span>
         )}
       </div>

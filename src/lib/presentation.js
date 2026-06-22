@@ -14,14 +14,21 @@ export function priorityLabel(priority) {
   return PRIORITY_LABELS[priority] || (priority != null ? String(priority) : '')
 }
 
+// A raw diagnostic flag token (snake_case, e.g. `no_staff_reply_after_client_question`).
+// It's redundant with the problem title, so we never show it to the accountant.
+function isTechnicalFlag(text) {
+  return /^[a-z0-9]+(_[a-z0-9]+)+$/.test(text)
+}
+
 // The accountant sees a single context block: the human description plus any
 // AI / review note, merged. Short, overlapping snippets read better as one.
 // NOTE: this deliberately never includes `source` — the accountant should see
-// the facts and what to do, not who flagged the problem.
+// the facts and what to do, not who flagged the problem — nor the raw detection
+// flag, which only duplicates the title.
 export function problemContext(problem) {
   return [problem.problem_description, problem.ai_comment]
     .map((t) => (typeof t === 'string' ? t.trim() : ''))
-    .filter(Boolean)
+    .filter((t) => t && !isTechnicalFlag(t))
     .join('\n\n')
 }
 
