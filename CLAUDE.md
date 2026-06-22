@@ -24,10 +24,15 @@ Problems are created by `kk_ingest_problems()` from (a) the manual Sona
 detection RPCs** that power the dashboards — `qa_unanswered_chats` («Без ответа»),
 `qa_answered_late_chats` («Поздний ответ») and `qa_overdue_promises`
 («Невыполненное обещание») — see `supabase/migrations/0004_qa_detection_ingestion.sql`.
-The RPCs each return a JSON **array** (not `{key: array}`). Unanswered chats create
-one problem PER named accountant (so every responsible accountant sees it);
-`kk_resolve_employee()` resolves the chat-named accountant to an employee (full_name
-→ alias → space-insensitive). Promises name no one → unassigned (supervisors only).
+The RPCs each return a JSON **array** (not `{key: array}`). Unanswered targeting
+(0005): a row the QA layer marks `data_incomplete`/`needs_review` is UNCERTAIN
+(staff reply likely dropped — someone may have answered) → one **unassigned** soft
+item «Возможно без ответа (требует проверки)», nobody blamed. A CONFIRMED row
+(`no_staff_reply_after_client_question`) is assigned to the client's **@mentioned**
+employees (the ones actually asked, resolved via `employees.normalized_username`);
+else to all named accountants; else unassigned. `kk_resolve_employee()` resolves a
+name to an employee (full_name → alias → space-insensitive). Promises name no one →
+unassigned (supervisors only).
 `src/lib/ingestion.js` mirrors these as `mapUnansweredChat`/`mapLateChat`/`mapOverduePromise`
 for spec + tests. Those sources record
 the accountant only by a **short localized name** (e.g. Armenian `Օлия`), which does

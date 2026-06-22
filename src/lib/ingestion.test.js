@@ -21,6 +21,9 @@ import {
   mapUnansweredChat,
   mapLateChat,
   mapOverduePromise,
+  isUnansweredUncertain,
+  extractMentions,
+  mapUncertainUnanswered,
 } from './ingestion'
 import { SOURCES, STATUS } from './constants'
 
@@ -254,6 +257,51 @@ describe('live QA detections (unanswered / late / promise)', () => {
 
   it('only emits the AI source allowed by the schema', () => {
     expect(SOURCES).toContain(QA_SOURCE)
+  })
+})
+
+describe('unanswered targeting (do not blame whoever answered)', () => {
+  it('treats data_incomplete / needs_review as uncertain', () => {
+    expect(isUnansweredUncertain({ data_incomplete: true })).toBe(true)
+    expect(isUnansweredUncertain({ needs_review: true })).toBe(true)
+    expect(isUnansweredUncertain({ data_incomplete: false, needs_review: false })).toBe(false)
+    expect(isUnansweredUncertain({})).toBe(false)
+  })
+
+  it('extracts @mentions (who was actually asked), lowercased', () => {
+    expect(extractMentions('Добрый день! @olyaAccounting и @manager_onebusiness')).toEqual([
+      'olyaaccounting',
+      'manager_onebusiness',
+    ])
+    expect(extractMentions('no mentions here')).toEqual([])
+    expect(extractMentions(null)).toEqual([])
+  })
+
+  it('uncertain row → unassigned soft review item (nobody blamed)', () => {
+    // The Pachin case: Inga answered but the reply was dropped on import.
+    const p = mapUncertainUnanswered({
+      chat_id: -4160356883,
+      chat_name: 'ИП Александр Пачин N-6 RU',
+      problematic_client_message: 'Правильно понимаю, что в 40 000 драм входит все?',
+      oldest_pending_at: '2026-06-18T14:07:15+00:00',
+      flag_reason: 'data_incomplete_possible_dropped_reply',
+    })
+    expect(p.problem_id).toBe('review:-4160356883')
+    expect(p.problem_title).toBe(QA_PROBLEM_TITLES.review)
+    expect(p.accountant_id).toBeNull()
+    expect(p.accountant_name).toBeNull()
+    expect(p.priority).toBe(3)
+  })
+
+  it('a confirmed row is assigned per accountant (one row each), keyed by employee', () => {
+    // When @olyaaccounting is asked, only Olya's row is produced upstream; the
+    // mapper keys the problem by that employee so others (e.g. Inga) get nothing.
+    const olya = mapUnansweredChat(
+      { chat_id: -5175454837, chat_name: 'Bookkeeping B-4479', severity: 'critical' },
+      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Accounting' },
+    )
+    expect(olya.problem_id).toBe('unanswered:-5175454837:2b22a577-7683-4f22-9834-c957312da4bc')
+    expect(olya.accountant_name).toBe('Olya Accounting')
   })
 })
 

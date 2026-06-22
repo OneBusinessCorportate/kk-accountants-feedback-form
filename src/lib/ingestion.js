@@ -203,8 +203,28 @@ export const QA_SOURCE = 'ai'
 
 export const QA_PROBLEM_TITLES = {
   unanswered: 'Без ответа клиенту',
+  // Uncertain (data_incomplete / needs_review): the staff reply was likely
+  // dropped on import or staff is active — surfaced for review, NOT blamed.
+  review: 'Возможно без ответа (требует проверки)',
   late: 'Поздний ответ клиенту',
   promise: 'Невыполненное обещание (не отправлено)',
+}
+
+// An unanswered row is UNCERTAIN when the QA layer couldn't confirm the miss
+// (importer likely dropped the staff reply, or staff was recently active). Such
+// rows must not be pinned on an accountant who may well have answered.
+export function isUnansweredUncertain(item = {}) {
+  return Boolean(item.data_incomplete) || Boolean(item.needs_review)
+}
+
+// @mentions in a client message, lowercased & de-@'d. These identify WHO was
+// actually asked, so a confirmed-unanswered chat is assigned only to them.
+export function extractMentions(text) {
+  const out = []
+  const re = /@([A-Za-z0-9_]+)/g
+  let m
+  while ((m = re.exec(text || '')) !== null) out.push(m[1].toLowerCase())
+  return out
 }
 
 const NO_ACCOUNTANT = { accountant_id: null, accountant_name: null }
@@ -241,6 +261,27 @@ export function mapUnansweredChat(item = {}, accountant = NO_ACCOUNTANT) {
     accountant_id: accountant.accountant_id ?? null,
     priority: unansweredPriority(item.severity),
     problem_title: QA_PROBLEM_TITLES.unanswered,
+    problem_description: firstText(item.problematic_client_message),
+    ai_comment: firstText(item.flag_reason),
+    detected_at: item.oldest_pending_at ?? null,
+    status: INGEST_STATUS,
+  }
+}
+
+// Uncertain unanswered row → one UNASSIGNED soft problem (nobody blamed). The
+// assigned «Без ответа» path (mapUnansweredChat) is used only for confirmed rows.
+export function mapUncertainUnanswered(item = {}) {
+  return {
+    problem_id: qaProblemId('review', item.chat_id),
+    source: QA_SOURCE,
+    client_name: firstText(item.chat_name),
+    contract_id: null,
+    chat_name: firstText(item.chat_name),
+    chat_link: telegramChatLink(item.chat_id),
+    accountant_name: null,
+    accountant_id: null,
+    priority: 3,
+    problem_title: QA_PROBLEM_TITLES.review,
     problem_description: firstText(item.problematic_client_message),
     ai_comment: firstText(item.flag_reason),
     detected_at: item.oldest_pending_at ?? null,
