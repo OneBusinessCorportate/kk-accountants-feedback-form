@@ -158,13 +158,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
             {problem.client_name && (
               <span className="title-client">
                 {' — '}
-                {problem.chat_link ? (
-                  <a href={problem.chat_link} target="_blank" rel="noreferrer">
-                    {problem.client_name}
-                  </a>
-                ) : (
-                  problem.client_name
-                )}
+                {problem.client_name}
                 {problem.contract_id && (
                   <span className="contract-id"> {problem.contract_id}</span>
                 )}
