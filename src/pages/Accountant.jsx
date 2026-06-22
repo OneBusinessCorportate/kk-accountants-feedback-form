@@ -147,7 +147,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
 
   const context = problemContext(problem)
   const detected = formatDate(problem.detected_at)
-  const overdue = isOverdue(problem)
 
   return (
     <div className={`card card-prio-${problem.priority || 2}`}>
@@ -165,7 +164,6 @@ function ProblemFeedbackCard({ problem, onSaved }) {
               </span>
             )}
           </h3>
-          {overdue && <span className="badge badge-red">Просрочено</span>}
         </div>
         {problem.chat_link && (
           <a
