@@ -3,9 +3,12 @@ import { Link } from 'react-router-dom'
 import { fetchProblems } from '../lib/api'
 import { STATUS, ACCOUNTANT_ACTIONABLE } from '../lib/constants'
 import { isOverdue } from '../lib/presentation'
+import { keepOwnProblems } from '../lib/scope'
+import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
 
 export default function Dashboard() {
+  const { access, canManage } = useAuth()
   const [problems, setProblems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -14,13 +17,14 @@ export default function Dashboard() {
     let active = true
     setLoading(true)
     fetchProblems()
-      .then((data) => active && setProblems(data))
+      // Regular accountants only see totals for their own problems.
+      .then((data) => active && setProblems(keepOwnProblems(data, access)))
       .catch((e) => active && setError(e))
       .finally(() => active && setLoading(false))
     return () => {
       active = false
     }
-  }, [])
+  }, [access])
 
   const count = (s) => problems.filter((p) => p.status === s).length
 
@@ -29,8 +33,13 @@ export default function Dashboard() {
     (p) => actionable.has(p.status) && isOverdue(p),
   ).length
 
+  // Review / Admin are management-only routes; for a scoped accountant send the
+  // related tiles to their own queue instead so links never dead-end on a guard.
+  const allProblemsTo = canManage ? '/admin' : '/accountant'
+  const reviewTo = canManage ? '/review' : '/accountant'
+
   const stats = [
-    { label: 'Всего проблем', num: problems.length, to: '/admin' },
+    { label: 'Всего проблем', num: problems.length, to: allProblemsTo },
     {
       label: 'Ждут бухгалтера',
       num:
@@ -43,10 +52,10 @@ export default function Dashboard() {
     {
       label: 'Отправлены / на проверке',
       num: count(STATUS.submitted_by_accountant) + count(STATUS.in_review),
-      to: '/review',
+      to: reviewTo,
     },
-    { label: 'Исправлено', num: count(STATUS.fixed), to: '/review' },
-    { label: 'Принято', num: count(STATUS.explained_accepted), to: '/review' },
+    { label: 'Исправлено', num: count(STATUS.fixed), to: reviewTo },
+    { label: 'Принято', num: count(STATUS.explained_accepted), to: reviewTo },
   ]
 
   return (

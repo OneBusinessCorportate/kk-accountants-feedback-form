@@ -13,6 +13,12 @@ backend. Deployable on **Render** as a Static Site.
 
 ## Features
 
+- **Login-code auth & per-accountant scoping** — the app is gated behind a personal
+  login code (shared `login_codes` table / `resolve_login_code` RPC with the
+  OneBusiness dashboards; no Supabase Auth). Regular accountants see only the problems
+  assigned to them; supervisors (`head_accountant`, `ceo`, `founder`, `qa`, `admin`)
+  see everything and are the only roles who can open **Review** and **Admin**. See
+  `src/lib/auth.js`, `src/lib/scope.js`.
 - **Dashboard (`/`)** — totals: all problems, waiting for accountant, submitted /
   in review, fixed, accepted.
 - **Accountant (`/accountant`)** — filter by accountant, see assigned problems,

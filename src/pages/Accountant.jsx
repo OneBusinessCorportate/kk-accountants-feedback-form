@@ -11,8 +11,11 @@ import {
 import StatusBadge from '../components/StatusBadge'
 import PriorityBadge from '../components/PriorityBadge'
 import { Loading, ErrorMessage, Empty } from '../components/States'
+import { useAuth } from '../lib/AuthContext'
+import { keepOwnProblems } from '../lib/scope'
 
 export default function Accountant() {
+  const { access, isSupervisor } = useAuth()
   const [accountants, setAccountants] = useState([])
   const [accountantId, setAccountantId] = useState('')
   const [problems, setProblems] = useState([])
@@ -22,21 +25,29 @@ export default function Accountant() {
   // stale response overwrite a newer one, and unmounted writes are dropped.
   const reqRef = useRef(0)
 
+  // Only supervisors get the "filter by accountant" picker; a regular
+  // accountant is always locked to their own queue.
   useEffect(() => {
+    if (!isSupervisor) return
     fetchAccountants()
       .then(setAccountants)
       .catch((e) => setError(e))
-  }, [])
+  }, [isSupervisor])
 
   function load() {
     const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
     fetchProblems({
-      accountantId: accountantId || undefined,
+      // Supervisors may filter server-side; scoped accountants fetch all
+      // actionable rows and are narrowed to their own client-side.
+      accountantId: isSupervisor ? accountantId || undefined : undefined,
       statusIn: ACCOUNTANT_ACTIONABLE,
     })
-      .then((data) => reqId === reqRef.current && setProblems(data))
+      .then((data) => {
+        if (reqId !== reqRef.current) return
+        setProblems(isSupervisor ? data : keepOwnProblems(data, access))
+      })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))
   }
@@ -47,7 +58,7 @@ export default function Accountant() {
     return () => {
       reqRef.current++
     }
-  }, [accountantId])
+  }, [accountantId, isSupervisor, access])
 
   // Most urgent / longest-waiting first, and count what's overdue.
   const ordered = useMemo(() => sortQueue(problems), [problems])
@@ -63,19 +74,25 @@ export default function Accountant() {
         Заполните комментарий по ситуации и решение для каждой назначенной проблемы.
       </p>
 
-      <div className="toolbar">
-        <div className="field">
-          <label>Фильтр по бухгалтеру</label>
-          <select value={accountantId} onChange={(e) => setAccountantId(e.target.value)}>
-            <option value="">Все бухгалтеры</option>
-            {accountants.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+      {isSupervisor ? (
+        <div className="toolbar">
+          <div className="field">
+            <label>Фильтр по бухгалтеру</label>
+            <select value={accountantId} onChange={(e) => setAccountantId(e.target.value)}>
+              <option value="">Все бухгалтеры</option>
+              {accountants.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="queue-summary">
+          Показаны проблемы, назначенные вам: <b>{access?.full_name}</b>
+        </div>
+      )}
 
       <ErrorMessage error={error} />
 
