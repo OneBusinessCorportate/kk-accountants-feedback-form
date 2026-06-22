@@ -9,9 +9,9 @@
 // functions are the spec + regression tests, and are reused by the optional
 // `scripts/sync-problems.mjs` runner. Keep the two in sync when changing rules.
 //
-// Sources (Repo A / Repo B), both keyed by the responsible accountant's NAME
-// (neither system has a numeric accountant id, so name is the only stable join
-// key — we use it for both accountant_name and accountant_id):
+// Sources (Repo A / Repo B). Neither system has an accountant id — only a short
+// localized NAME — so that name is resolved to a real employee (uuid + canonical
+// full_name) via resolveAccountant() before it is stored:
 //   - Sona  (sona-qa-platform)      → `sqa_tickets`   → source 'sona_review'
 //   - Margarita (margarita-qa-platform) → `mqa_violations` → source 'margarita_review'
 
@@ -20,6 +20,64 @@ export const MARGARITA_SOURCE = 'margarita_review'
 
 // New problems always land here so they show up in the accountant's queue.
 export const INGEST_STATUS = 'waiting_for_accountant'
+
+// ---- accountant identity resolution ---------------------------------------
+// The QA sources record the accountant only by a short, localized NAME (e.g.
+// the Armenian first name "Օլյա"), which does NOT match the canonical
+// employees.full_name ("Olya Accounting"). Per-accountant scoping keys off the
+// employee identity, so every source name is translated here to a REAL employee
+// (uuid + canonical full_name). A name with no matching employee resolves to
+// null on BOTH fields — we never attribute a problem to an invented person.
+//
+// Keep this in sync with supabase/migrations/0003_accountant_aliases.sql, which
+// seeds the same map into the kk_accountant_aliases table used by the in-DB
+// ingestion (a contract test asserts the two stay aligned).
+
+export function normalizeAccountant(name) {
+  return (name ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+// [ source alias, employees.id (uuid), canonical employees.full_name ].
+// Bare Armenian first names map to the dedicated "{Name} Accounting" employee;
+// an initial (Մ․) disambiguates to the surname. Source labels with no employee
+// (e.g. "հանձնված" = "handed over", "Էրիկ", "-") are deliberately absent so
+// they resolve to null instead of a fake accountant.
+const ACCOUNTANT_ALIAS_ENTRIES = [
+  ['Գայանե', 'aac8ac8c-95d8-4327-b89e-8d0ff991de82', 'Gayane Accounting'],
+  ['Թագուհի', 'e7d79ff0-1fc6-4e04-ac83-bc3b56a5e7d8', 'Taguhi Accounting'],
+  ['Ստելլա', '6e60a1f3-2869-4e02-ba38-d00e6e2edb83', 'Stella Accounting'],
+  ['Լիլիթ', '2f1be5af-4da7-43d1-9a04-8945d3238136', 'Lilit Accounting'],
+  ['Լիլիթ Ք․', '2f1be5af-4da7-43d1-9a04-8945d3238136', 'Lilit Accounting'],
+  ['Նաիրա', 'b2799800-e8bc-4b28-8ce6-db73eb548f3b', 'Naira Accounting'],
+  ['Նաիրա Մ․', 'f04c637e-2d94-46d4-85cb-e8e7399835be', 'Naira Mkhitaryan'],
+  ['Օլյա', '2b22a577-7683-4f22-9834-c957312da4bc', 'Olya Accounting'],
+  ['Հասմիկ', 'bc8f2f14-63bb-4a69-b79f-a69c93441c59', 'Hasmik Accounting'],
+  ['Ավագ', '2872d701-7b27-48b4-81f5-e4120fea0d47', 'Avag Accounting'],
+  ['Դավիթ', 'db613c42-efa0-4bc9-a267-ccfde1676681', 'Davit Accounting'],
+  ['Սաթենիկ', '5f7a5c5e-2f0e-46de-bcd6-ab617e641769', 'Satenik'],
+  ['Ռոբերտ', 'f5ccf667-d42e-4b1d-8b9c-79d0f0330e14', 'Rob Accounting'],
+  ['Էմիլյա', '7b5f8d9f-689d-4376-b31b-41e1c7b8199f', 'Emiliya Avanesyan'],
+  ['Տաթև', '7875fde5-2cb5-44f0-a6b6-29a04c00a912', 'Tatev Accounting'],
+  ['Առփինե', 'ce7d90ee-343c-453b-bbed-8da99c237a5c', 'Arpine'],
+]
+
+export const ACCOUNTANT_ALIASES = new Map(
+  ACCOUNTANT_ALIAS_ENTRIES.map(([alias, id, full]) => [
+    normalizeAccountant(alias),
+    { employee_id: id, full_name: full },
+  ]),
+)
+
+/**
+ * Resolve a raw source accountant name to { accountant_id, accountant_name }.
+ * accountant_id is the employee uuid (so client-side scoping matches), and
+ * accountant_name is the canonical full_name. Unknown names → both null.
+ */
+export function resolveAccountant(rawName) {
+  const hit = ACCOUNTANT_ALIASES.get(normalizeAccountant(rawName))
+  if (!hit) return { accountant_id: null, accountant_name: null }
+  return { accountant_id: hit.employee_id, accountant_name: hit.full_name }
+}
 
 // First non-empty, trimmed string from the arguments, else null.
 function firstText(...values) {
@@ -67,7 +125,9 @@ export function margaritaPriority(severity) {
 // status, and never touch kk_accountant_feedback.
 
 export function mapSonaTicket(row = {}) {
-  const accountant = firstText(row.accountant, row.chat_accountant)
+  const { accountant_id, accountant_name } = resolveAccountant(
+    firstText(row.accountant, row.chat_accountant),
+  )
   return {
     problem_id: sonaProblemId(row.id),
     source: SONA_SOURCE,
@@ -75,8 +135,8 @@ export function mapSonaTicket(row = {}) {
     contract_id: row.company_agr_no ?? null,
     chat_name: firstText(row.chat_name),
     chat_link: firstText(row.chat_link),
-    accountant_name: accountant,
-    accountant_id: accountant,
+    accountant_name,
+    accountant_id,
     priority: sonaPriority(row),
     problem_title: firstText(row.title, row.type) || 'Проблема по проверке (Сона)',
     problem_description: firstText(row.description, row.comment),
@@ -87,7 +147,9 @@ export function mapSonaTicket(row = {}) {
 }
 
 export function mapMargaritaViolation(row = {}) {
-  const accountant = firstText(row.accountant, row.chat_accountant)
+  const { accountant_id, accountant_name } = resolveAccountant(
+    firstText(row.accountant, row.chat_accountant),
+  )
   return {
     problem_id: margaritaProblemId(row.id),
     source: MARGARITA_SOURCE,
@@ -95,8 +157,8 @@ export function mapMargaritaViolation(row = {}) {
     contract_id: row.chat_agr_no ?? null,
     chat_name: firstText(row.chat_name),
     chat_link: firstText(row.chat_link),
-    accountant_name: accountant,
-    accountant_id: accountant,
+    accountant_name,
+    accountant_id,
     priority: margaritaPriority(row.severity),
     problem_title: firstText(row.violation_type) || 'Нарушение (Маргарита)',
     problem_description: firstText(row.note, row.violation_type),

@@ -14,8 +14,30 @@ React + Vite frontend, Supabase (Postgres) backend, deployed on Render as a Stat
 - `src/pages/` — Dashboard `/`, Accountant `/accountant`, Review `/review`, Admin `/admin`
 - `src/lib/` — `supabaseClient.js`, `constants.js`, `api.js` (all data access),
   `auth.js` + `scope.js` + `AuthContext.jsx` (login-code auth & per-accountant scoping)
-- `src/lib/*.test.js` — Vitest unit tests (constants integrity, api call flow, auth, scope)
+- `src/lib/*.test.js` — Vitest unit tests (constants integrity, api call flow, auth, scope, ingestion)
 - `supabase/migrations/0001_init.sql` — schema (`kk_problems`, `kk_accountant_feedback`, `kk_review_actions`)
+
+## Accountant identity & ingestion (use ONLY valid employees)
+
+Problems are created by `kk_ingest_problems()` from the Sona (`sqa_tickets`) and
+Margarita (`mqa_violations`) QA systems in the same project. Those sources record
+the accountant only by a **short localized name** (e.g. Armenian `Օлия`), which does
+NOT match `employees.full_name` (`Olya Accounting`). Since per-accountant scoping
+keys off the employee identity, every source name MUST be resolved to a real
+employee before it is stored:
+
+- `src/lib/ingestion.js` — `ACCOUNTANT_ALIASES` + `resolveAccountant(name)` map a
+  source name to `{ accountant_id = employee uuid, accountant_name = full_name }`.
+  An unmapped name (e.g. `Էрик`, `հанձнвад`, `-`) resolves to **null on both** — we
+  never attribute a problem to an invented person. **Do not store raw source names
+  or invented people** (no "Анна Петросян"); add new aliases to BOTH the JS map and
+  the SQL table below.
+- `supabase/migrations/0003_accountant_aliases.sql` — the `kk_accountant_aliases`
+  table (mirror of the JS map) + `kk_norm_name()`; `kk_ingest_problems()` joins it so
+  `kk_problems.accountant_id` holds the employee uuid. Re-runnable backfill at the end.
+- Bare first name → the `{Name} Accounting` employee; an initial disambiguates
+  (`Նаира Մ․` → `Naira Mkhitaryan`). `seed.sql` is local-demo only and also uses real
+  employees (uuid + canonical name); demo rows are not loaded in production.
 
 ## Auth & per-accountant scoping (ported from ob-dashboards-for-accounters)
 

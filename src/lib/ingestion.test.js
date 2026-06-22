@@ -10,6 +10,9 @@ import {
   mapSonaTicket,
   mapMargaritaViolation,
   UPSERT_REFRESH_COLUMNS,
+  ACCOUNTANT_ALIASES,
+  normalizeAccountant,
+  resolveAccountant,
 } from './ingestion'
 import { SOURCES, STATUS } from './constants'
 
@@ -67,8 +70,9 @@ describe('mapSonaTicket', () => {
     expect(p.contract_id).toBe('B-4392')
     expect(p.client_name).toBe('PRIME DIGITAL LLC')
     expect(p.chat_link).toBe('https://web.telegram.org/a/#-5138517763')
-    expect(p.accountant_name).toBe('Օլյա')
-    expect(p.accountant_id).toBe('Օլյա') // name is the only stable join key
+    // Source name "Օլյա" is resolved to the real employee.
+    expect(p.accountant_name).toBe('Olya Accounting')
+    expect(p.accountant_id).toBe('2b22a577-7683-4f22-9834-c957312da4bc')
     expect(p.priority).toBe(1)
     expect(p.problem_title).toBe('Не сдан отчёт НДС')
     expect(p.status).toBe(INGEST_STATUS)
@@ -83,7 +87,7 @@ describe('mapSonaTicket', () => {
       title: '',
       type: '',
     })
-    expect(p.accountant_name).toBe('Նաիրա')
+    expect(p.accountant_name).toBe('Naira Accounting')
     expect(p.problem_title).toBe('Проблема по проверке (Сона)')
   })
 })
@@ -109,8 +113,8 @@ describe('mapMargaritaViolation', () => {
     expect(p.source).toBe(MARGARITA_SOURCE)
     expect(p.contract_id).toBe('B-4219')
     expect(p.client_name).toBe('MARINA BIRYUKOVA')
-    expect(p.accountant_name).toBe('Նաիրա')
-    expect(p.accountant_id).toBe('Նաիրա')
+    expect(p.accountant_name).toBe('Naira Accounting')
+    expect(p.accountant_id).toBe('b2799800-e8bc-4b28-8ce6-db73eb548f3b')
     expect(p.priority).toBe(1)
     expect(p.problem_title).toBe('Не ответил клиенту вовремя')
     expect(p.problem_description).toBe('Клиент ждал ответа более суток')
@@ -122,6 +126,45 @@ describe('mapMargaritaViolation', () => {
     expect(p.problem_title).toBe('Нарушение (Маргарита)')
     expect(p.detected_at).toBe('2026-06-01')
     expect(p.priority).toBe(2)
+  })
+})
+
+describe('resolveAccountant (source name → real employee)', () => {
+  it('maps a bare Armenian first name to the "{Name} Accounting" employee', () => {
+    expect(resolveAccountant('Օլյա')).toEqual({
+      accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc',
+      accountant_name: 'Olya Accounting',
+    })
+  })
+
+  it('disambiguates an initialed name to the surname (Նաիրա Մ․ → Mkhitaryan)', () => {
+    const naira = resolveAccountant('Նաիրա')
+    const nairaM = resolveAccountant('Նաիրա Մ․')
+    expect(naira.accountant_name).toBe('Naira Accounting')
+    expect(nairaM.accountant_name).toBe('Naira Mkhitaryan')
+    expect(naira.accountant_id).not.toBe(nairaM.accountant_id)
+  })
+
+  it('is whitespace/case tolerant', () => {
+    expect(resolveAccountant('  Դավիթ  ').accountant_name).toBe('Davit Accounting')
+  })
+
+  it('resolves an unknown / non-person label to null on both fields', () => {
+    for (const junk of ['Էրիկ', 'հանձնված', '-', '', null, undefined, 'Анна Петросян']) {
+      expect(resolveAccountant(junk)).toEqual({ accountant_id: null, accountant_name: null })
+    }
+  })
+
+  it('every alias resolves to a uuid accountant_id and a non-empty name', () => {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+    for (const { employee_id, full_name } of ACCOUNTANT_ALIASES.values()) {
+      expect(employee_id).toMatch(uuid)
+      expect(full_name.trim()).not.toBe('')
+    }
+  })
+
+  it('normalizeAccountant trims, lowercases and collapses whitespace', () => {
+    expect(normalizeAccountant('  Naira   Mkhitaryan ')).toBe('naira mkhitaryan')
   })
 })
 
