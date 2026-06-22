@@ -17,8 +17,14 @@ export default function Dashboard() {
     let active = true
     setLoading(true)
     fetchProblems()
-      // Regular accountants only see totals for their own problems.
-      .then((data) => active && setProblems(keepOwnProblems(data, access)))
+      // Regular accountants only see their own; false positives are excluded.
+      .then(
+        (data) =>
+          active &&
+          setProblems(
+            keepOwnProblems(data, access).filter((p) => p.verdict !== 'not_problematic'),
+          ),
+      )
       .catch((e) => active && setError(e))
       .finally(() => active && setLoading(false))
     return () => {

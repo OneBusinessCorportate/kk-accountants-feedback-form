@@ -43,7 +43,9 @@ export default function Accountant() {
     })
       .then((data) => {
         if (reqId !== reqRef.current) return
-        setProblems(isSupervisor ? data : keepOwnProblems(data, access))
+        // Drop problems a reviewer judged a false positive — they're not real work.
+        const visible = data.filter((p) => p.verdict !== 'not_problematic')
+        setProblems(isSupervisor ? visible : keepOwnProblems(visible, access))
       })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))

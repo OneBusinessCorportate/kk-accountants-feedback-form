@@ -45,6 +45,18 @@ export const PRIORITY_LABELS = {
   3: 'Низкий',
 }
 
+// Reviewer's verdict on whether a detected problem was TRULY problematic — the
+// learning signal that lets the ingestion filter out false positives.
+export const VERDICT = {
+  problematic: 'problematic',
+  not_problematic: 'not_problematic',
+}
+
+export const VERDICT_LABELS = {
+  problematic: 'Действительно проблема',
+  not_problematic: 'Ложное срабатывание',
+}
+
 // Employee roles (from the shared employees table / resolve_login_code) shown
 // in the topbar after login. Kept here with the other display labels.
 export const ROLE_LABELS = {

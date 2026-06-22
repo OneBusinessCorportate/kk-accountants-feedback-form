@@ -4,9 +4,11 @@ import {
   fetchFeedback,
   fetchReviewActions,
   submitReviewAction,
+  rateProblem,
 } from '../lib/api'
-import { REVIEW_QUEUE, STATUS, STATUS_LABELS } from '../lib/constants'
+import { REVIEW_QUEUE, STATUS, STATUS_LABELS, VERDICT_LABELS } from '../lib/constants'
 import { sortQueue } from '../lib/presentation'
+import { useAuth } from '../lib/AuthContext'
 import StatusBadge from '../components/StatusBadge'
 import ProblemMeta from '../components/ProblemMeta'
 import { Loading, ErrorMessage, Empty } from '../components/States'
@@ -16,6 +18,9 @@ export default function Review() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showResolved, setShowResolved] = useState(false)
+  // Also pull the live AI-detected items (status "waiting") so QA can rate
+  // whether each was truly a problem — the false-positive feedback loop.
+  const [showDetected, setShowDetected] = useState(false)
   // Monotonic request id so a slow, stale response can never overwrite a newer
   // one (e.g. toggling the checkbox quickly) and unmounted writes are dropped.
   const reqRef = useRef(0)
@@ -27,8 +32,17 @@ export default function Review() {
     const statusIn = showResolved
       ? [...REVIEW_QUEUE, STATUS.fixed, STATUS.explained_accepted, STATUS.returned_to_accountant]
       : REVIEW_QUEUE
-    fetchProblems({ statusIn })
-      .then((data) => reqId === reqRef.current && setProblems(data))
+    const requests = [fetchProblems({ statusIn })]
+    if (showDetected) {
+      requests.push(fetchProblems({ source: 'ai', statusIn: [STATUS.waiting_for_accountant] }))
+    }
+    Promise.all(requests)
+      .then(([base, detected = []]) => {
+        if (reqId !== reqRef.current) return
+        const byId = new Map()
+        for (const p of [...base, ...detected]) byId.set(p.problem_id, p)
+        setProblems([...byId.values()])
+      })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))
   }
@@ -39,13 +53,13 @@ export default function Review() {
     return () => {
       reqRef.current++
     }
-  }, [showResolved])
+  }, [showResolved, showDetected])
 
   return (
     <div>
       <h1 className="page-title">Проверка</h1>
       <p className="page-subtitle">
-        Отправленные бухгалтерами проблемы с комментариями и решениями.
+        Отправленные бухгалтерами проблемы, а также оценка качества обнаружения ИИ.
       </p>
 
       <div className="toolbar">
@@ -57,6 +71,15 @@ export default function Review() {
             onChange={(e) => setShowResolved(e.target.checked)}
           />
           Показывать закрытые / возвращённые
+        </label>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', fontWeight: 500 }}>
+          <input
+            type="checkbox"
+            style={{ width: 'auto' }}
+            checked={showDetected}
+            onChange={(e) => setShowDetected(e.target.checked)}
+          />
+          Показывать обнаруженные ИИ (для оценки)
         </label>
       </div>
 
@@ -76,12 +99,36 @@ export default function Review() {
 }
 
 function ReviewCard({ problem, onChanged }) {
+  const { access } = useAuth()
   const [feedback, setFeedback] = useState([])
   const [actions, setActions] = useState([])
   const [reviewComment, setReviewComment] = useState('')
   const [reviewerName, setReviewerName] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [ratingComment, setRatingComment] = useState('')
+  const [ratingBusy, setRatingBusy] = useState(false)
+
+  // Reviewer's truthiness verdict — feeds the false-positive learning loop.
+  async function rate(isProblematic) {
+    setRatingBusy(true)
+    setError(null)
+    try {
+      await rateProblem({
+        problemId: problem.problem_id,
+        isProblematic,
+        comment: ratingComment.trim(),
+        ratedBy: access?.full_name || null,
+        problemDetectedAt: problem.detected_at || null,
+      })
+      setRatingComment('')
+      onChanged()
+    } catch (e) {
+      setError(e)
+    } finally {
+      setRatingBusy(false)
+    }
+  }
 
   // Re-fetch when the status changes too, so that after an action the decision
   // history updates even while the card stays visible (resolved view).
@@ -129,7 +176,16 @@ function ReviewCard({ problem, onChanged }) {
     <div className="card">
       <div className="card-head">
         <h3 className="card-title">{problem.problem_title || problem.problem_id}</h3>
-        <StatusBadge status={problem.status} />
+        <span style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <StatusBadge status={problem.status} />
+          {problem.verdict && (
+            <span
+              className={`badge ${problem.verdict === 'problematic' ? 'badge-green' : 'badge-gray'}`}
+            >
+              {VERDICT_LABELS[problem.verdict]}
+            </span>
+          )}
+        </span>
       </div>
 
       <ProblemMeta problem={problem} />
@@ -211,6 +267,30 @@ function ReviewCard({ problem, onChanged }) {
             onClick={() => act(STATUS.returned_to_accountant)}
           >
             Вернуть бухгалтеру
+          </button>
+        </div>
+      </div>
+
+      <div className="subbox">
+        <h4>Оценка качества обнаружения</h4>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Это действительно была проблема? Ответ обучает ИИ точнее фильтровать чаты —
+          помеченные «ложным срабатыванием» перестают появляться.
+        </p>
+        <div className="field">
+          <label>Комментарий к оценке (необязательно)</label>
+          <textarea
+            placeholder="Почему это (не) проблема — поможет настроить обнаружение"
+            value={ratingComment}
+            onChange={(e) => setRatingComment(e.target.value)}
+          />
+        </div>
+        <div className="btn-row">
+          <button className="btn btn-green" disabled={ratingBusy} onClick={() => rate(true)}>
+            Действительно проблема
+          </button>
+          <button className="btn btn-secondary" disabled={ratingBusy} onClick={() => rate(false)}>
+            Ложное срабатывание
           </button>
         </div>
       </div>

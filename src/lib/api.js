@@ -14,6 +14,7 @@ export async function fetchProblems(filters = {}) {
 
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
   if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
+  if (filters.source) query = query.eq('source', filters.source)
 
   return unwrap(await query)
 }
@@ -124,4 +125,53 @@ export async function submitReviewAction({ problemId, reviewerName, action, revi
   // The action value maps 1:1 onto a problem status.
   await updateProblemStatus(problemId, action)
   return record
+}
+
+// ---- Detection-quality ratings (learning signal) --------------------------
+
+export async function fetchRatings(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_problem_ratings')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: false }),
+  )
+}
+
+// Record a reviewer's truthiness verdict on a detected problem and mirror it to
+// kk_problems.verdict. A "not problematic" verdict makes the ingestion stop
+// re-surfacing this detection (until a strictly newer episode); see
+// supabase/migrations/0006_problem_ratings.sql.
+export async function rateProblem({
+  problemId,
+  isProblematic,
+  comment,
+  ratedBy,
+  problemDetectedAt,
+}) {
+  const rating = unwrap(
+    await supabase
+      .from('kk_problem_ratings')
+      .insert({
+        problem_id: problemId,
+        is_problematic: isProblematic,
+        comment: comment || null,
+        rated_by: ratedBy || null,
+        problem_detected_at: problemDetectedAt || null,
+      })
+      .select()
+      .single(),
+  )
+
+  unwrap(
+    await supabase
+      .from('kk_problems')
+      .update({
+        verdict: isProblematic ? 'problematic' : 'not_problematic',
+        verdict_at: new Date().toISOString(),
+      })
+      .eq('problem_id', problemId),
+  )
+  return rating
 }

@@ -34,7 +34,21 @@ else to all named accountants; else unassigned. `kk_resolve_employee()` resolves
 name to an employee (full_name → alias → space-insensitive). Promises name no one →
 unassigned (supervisors only).
 `src/lib/ingestion.js` mirrors these as `mapUnansweredChat`/`mapLateChat`/`mapOverduePromise`
-for spec + tests. Those sources record
+for spec + tests.
+
+## Detection-quality feedback loop (Review → learning)
+
+Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a
+problem — «Действительно проблема» / «Ложное срабатывание» (`rateProblem` →
+`kk_problem_ratings` history + `kk_problems.verdict`). A «Ложное срабатывание»
+verdict (1) drops the problem from accountant queues + dashboard counts
+(`verdict !== 'not_problematic'` filter) and (2) makes `kk_ingest_problems()`
+SUPPRESS that detection so it stops reappearing — until a strictly NEWER episode
+(rating stores `problem_detected_at`; suppression re-surfaces when a newer
+`detected_at` arrives), so it never goes permanently blind (see
+`0006_problem_ratings.sql`). The `qa_*` RPCs are NOT modified; `kk_problem_ratings`
+is the labeled signal the QA-bot team can later feed into them. Toggle «Показывать
+обнаруженные ИИ» in Review loads the live AI items for rating. Those sources record
 the accountant only by a **short localized name** (e.g. Armenian `Օлия`), which does
 NOT match `employees.full_name` (`Olya Accounting`). Since per-accountant scoping
 keys off the employee identity, every source name MUST be resolved to a real

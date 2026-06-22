@@ -34,10 +34,37 @@ vi.mock('./supabaseClient', () => ({
   supabaseConfigError: null,
 }))
 
-import { submitAccountantFeedback, submitReviewAction } from './api'
+import { submitAccountantFeedback, submitReviewAction, rateProblem } from './api'
 
 beforeEach(() => {
   calls.length = 0
+})
+
+describe('rateProblem', () => {
+  it('records the rating and mirrors a "false positive" verdict onto the problem', async () => {
+    await rateProblem({
+      problemId: 'unanswered:-1:emp',
+      isProblematic: false,
+      comment: 'staff did answer',
+      ratedBy: 'QA',
+      problemDetectedAt: '2026-06-18T00:00:00Z',
+    })
+
+    const insert = calls.find((c) => c.op === 'insert')
+    expect(insert.table).toBe('kk_problem_ratings')
+    expect(insert.payload.problem_id).toBe('unanswered:-1:emp')
+    expect(insert.payload.is_problematic).toBe(false)
+    expect(insert.payload.problem_detected_at).toBe('2026-06-18T00:00:00Z')
+
+    const update = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(update.payload.verdict).toBe('not_problematic')
+  })
+
+  it('maps a positive rating to the "problematic" verdict', async () => {
+    await rateProblem({ problemId: 'p', isProblematic: true })
+    const update = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(update.payload.verdict).toBe('problematic')
+  })
 })
 
 describe('submitAccountantFeedback', () => {
