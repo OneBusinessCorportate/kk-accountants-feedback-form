@@ -176,6 +176,53 @@ export async function rateProblem({
   return rating
 }
 
+// ---- QA accuracy stats ----------------------------------------------------
+
+// Aggregate the latest verdict (mirrored on kk_problems.verdict) into accuracy
+// numbers. Counts each problem once; split by detection source and, for AI
+// detections, by the problem_id prefix (unanswered / late / promise / review).
+export async function fetchAccuracyStats() {
+  const rows = unwrap(
+    await supabase
+      .from('kk_problems')
+      .select('problem_id, source, verdict')
+      .not('verdict', 'is', null),
+  )
+
+  function agg(items) {
+    const correct = items.filter((r) => r.verdict === 'problematic').length
+    const incorrect = items.filter((r) => r.verdict === 'not_problematic').length
+    const total = items.length
+    const accuracy = total > 0 ? Math.round((correct / total) * 10000) / 100 : null
+    return { total, correct, incorrect, accuracy }
+  }
+
+  const overall = agg(rows)
+
+  const srcMap = {}
+  for (const r of rows) {
+    const src = r.source || 'unknown'
+    if (!srcMap[src]) srcMap[src] = []
+    srcMap[src].push(r)
+  }
+  const perSource = Object.entries(srcMap)
+    .map(([source, items]) => ({ source, ...agg(items) }))
+    .sort((a, b) => b.total - a.total)
+
+  const aiRows = rows.filter((r) => r.source === 'ai')
+  const subtypeMap = {}
+  for (const r of aiRows) {
+    const prefix = r.problem_id.split(':')[0]
+    if (!subtypeMap[prefix]) subtypeMap[prefix] = []
+    subtypeMap[prefix].push(r)
+  }
+  const aiSubtypes = Object.entries(subtypeMap)
+    .map(([prefix, items]) => ({ prefix, ...agg(items) }))
+    .sort((a, b) => b.total - a.total)
+
+  return { overall, perSource, aiSubtypes }
+}
+
 // ---- Tasks -----------------------------------------------------------------
 
 export async function fetchTasks(filters = {}) {

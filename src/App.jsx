@@ -15,6 +15,7 @@ import Review from './pages/Review.jsx'
 import Admin from './pages/Admin.jsx'
 import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
+import QAStats from './pages/QAStats.jsx'
 
 export default function App() {
   // Auth gate state machine: loading → (anon | authed | error).
@@ -120,6 +121,7 @@ export default function App() {
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/review" element={manage ? <Review /> : <Navigate to="/" replace />} />
+            <Route path="/qa-stats" element={manage ? <QAStats /> : <Navigate to="/" replace />} />
             <Route path="/admin" element={manage ? <Admin /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
