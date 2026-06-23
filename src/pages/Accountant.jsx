@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
+import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchComments, submitComment } from '../lib/api'
 import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
 import {
   formatDate,
@@ -117,16 +117,26 @@ export default function Accountant() {
 }
 
 function ProblemFeedbackCard({ problem, onSaved }) {
+  const { access } = useAuth()
   const [situation, setSituation] = useState('')
   const [solution, setSolution] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [comments, setComments] = useState([])
+  const [newComment, setNewComment] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
 
   const canSave = situation.trim() !== '' && solution.trim() !== '' && !saving
   // Only nudge once the accountant has started but left one field empty — a
   // fresh, untouched card stays clean.
   const showRequiredHint =
     !saving && !canSave && (situation.trim() !== '' || solution.trim() !== '')
+
+  useEffect(() => {
+    fetchComments(problem.problem_id)
+      .then(setComments)
+      .catch((e) => setError(e))
+  }, [problem.problem_id])
 
   async function handleSave() {
     setSaving(true)
@@ -144,6 +154,26 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       setError(e)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleCommentSave() {
+    setCommentSaving(true)
+    setError(null)
+    try {
+      await submitComment({
+        problemId: problem.problem_id,
+        accountantId: problem.accountant_id,
+        accountantName: problem.accountant_name || access?.full_name,
+        commentText: newComment.trim(),
+      })
+      setNewComment('')
+      const updated = await fetchComments(problem.problem_id)
+      setComments(updated)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setCommentSaving(false)
     }
   }
 
@@ -218,9 +248,35 @@ function ProblemFeedbackCard({ problem, onSaved }) {
         />
       </div>
 
+      {comments.length > 0 && (
+        <div className="subbox">
+          <h4>Комментарии администратора</h4>
+          {comments.map((c) => (
+            <div className="kv" key={c.id}>
+              <div className="k">
+                {new Date(c.created_at).toLocaleString('ru-RU')}
+              </div>
+              <div className="v">{c.comment_text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="field">
+        <label>Добавить комментарий</label>
+        <textarea
+          placeholder="Ваш комментарий (видно администратору)"
+          value={newComment}
+          onChange={(e) => setNewComment(e.target.value)}
+        />
+      </div>
+
       <div className="btn-row">
         <button className="btn" disabled={!canSave} onClick={handleSave}>
           {saving ? 'Сохранение…' : 'Сохранить'}
+        </button>
+        <button className="btn btn-secondary" disabled={commentSaving || !newComment.trim()} onClick={handleCommentSave}>
+          {commentSaving ? 'Отправка…' : 'Отправить комментарий'}
         </button>
         {showRequiredHint && (
           <span className="hint">Оба поля обязательны для сохранения.</span>

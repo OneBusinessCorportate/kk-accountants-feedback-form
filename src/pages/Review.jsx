@@ -3,6 +3,7 @@ import {
   fetchProblems,
   fetchFeedback,
   fetchReviewActions,
+  fetchComments,
   submitReviewAction,
   rateProblem,
 } from '../lib/api'
@@ -102,6 +103,7 @@ function ReviewCard({ problem, onChanged }) {
   const { access } = useAuth()
   const [feedback, setFeedback] = useState([])
   const [actions, setActions] = useState([])
+  const [comments, setComments] = useState([])
   const [reviewComment, setReviewComment] = useState('')
   const [reviewerName, setReviewerName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -134,11 +136,16 @@ function ReviewCard({ problem, onChanged }) {
   // history updates even while the card stays visible (resolved view).
   useEffect(() => {
     let ignore = false
-    Promise.all([fetchFeedback(problem.problem_id), fetchReviewActions(problem.problem_id)])
-      .then(([fb, ac]) => {
+    Promise.all([
+      fetchFeedback(problem.problem_id),
+      fetchReviewActions(problem.problem_id),
+      fetchComments(problem.problem_id),
+    ])
+      .then(([fb, ac, cm]) => {
         if (ignore) return
         setFeedback(fb)
         setActions(ac)
+        setComments(cm)
       })
       .catch((e) => !ignore && setError(e))
     return () => {
@@ -227,6 +234,21 @@ function ReviewCard({ problem, onChanged }) {
                 {a.reviewer_name ? ` · ${a.reviewer_name}` : ''}
               </div>
               {a.review_comment && <div className="v">{a.review_comment}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {comments.length > 0 && (
+        <div className="subbox">
+          <h4>Комментарии бухгалтеров</h4>
+          {comments.map((c) => (
+            <div className="kv" key={c.id}>
+              <div className="k">
+                <b>{c.accountant_name || '—'}</b> ·{' '}
+                {new Date(c.created_at).toLocaleString('ru-RU')}
+              </div>
+              <div className="v">{c.comment_text}</div>
             </div>
           ))}
         </div>

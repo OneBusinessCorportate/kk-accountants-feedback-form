@@ -263,3 +263,30 @@ export async function reopenTask(taskId) {
 export async function deleteTask(taskId) {
   return unwrap(await supabase.from('kk_tasks').delete().eq('id', taskId))
 }
+
+// ---- Accountant Comments ---------------------------------------------------
+
+export async function fetchComments(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_accountant_comments')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: false }),
+  )
+}
+
+export async function submitComment({ problemId, accountantId, accountantName, commentText }) {
+  return unwrap(
+    await supabase
+      .from('kk_accountant_comments')
+      .insert({
+        problem_id: problemId,
+        accountant_id: accountantId,
+        accountant_name: accountantName,
+        comment_text: commentText,
+      })
+      .select()
+      .single(),
+  )
+}
