@@ -525,3 +525,13 @@ tbody tr:last-child td {
   font-size: 12px;
   margin-top: 6px;
 }
+
+/* ---- Section label (Tasks grouping, Dashboard) ---- */
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}

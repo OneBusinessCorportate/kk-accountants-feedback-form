@@ -115,18 +115,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: 'var(--muted)',
-              marginBottom: 10,
-            }}
-          >
-            Задачи
-          </div>
+          <div className="section-label">Задачи</div>
           <div className="stat-grid" style={{ marginBottom: 28 }}>
             {taskStats.map((s) => (
               <Link
@@ -141,18 +130,7 @@ export default function Dashboard() {
             ))}
           </div>
 
-          <div
-            style={{
-              fontSize: 12,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-              color: 'var(--muted)',
-              marginBottom: 10,
-            }}
-          >
-            Проблемные чаты (AI)
-          </div>
+          <div className="section-label">Проблемные чаты (AI)</div>
           <div className="stat-grid">
             {chatStats.map((s) => (
               <Link
