@@ -4,6 +4,8 @@
 export const NAV_LINKS = [
   { to: '/', label: 'Дашборд', end: true, manageOnly: false },
   { to: '/accountant', label: 'Бухгалтер', manageOnly: false },
+  { to: '/tasks', label: 'Задачи', manageOnly: false },
+  { to: '/clients', label: 'Клиенты', manageOnly: false },
   { to: '/review', label: 'Проверка', manageOnly: true },
   { to: '/admin', label: 'Админ', manageOnly: true },
 ]

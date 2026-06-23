@@ -175,3 +175,44 @@ export async function rateProblem({
   )
   return rating
 }
+
+// ---- Tasks -----------------------------------------------------------------
+
+export async function fetchTasks(filters = {}) {
+  let query = supabase.from('kk_tasks').select('*').order('created_at', { ascending: false })
+  if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  if (filters.taskType) query = query.eq('task_type', filters.taskType)
+  if (filters.done !== undefined) query = query.eq('done', filters.done)
+  if (filters.clientName) query = query.eq('client_name', filters.clientName)
+  return unwrap(await query)
+}
+
+export async function createTask(task) {
+  return unwrap(await supabase.from('kk_tasks').insert(task).select().single())
+}
+
+export async function completeTask(taskId, doneBy) {
+  return unwrap(
+    await supabase
+      .from('kk_tasks')
+      .update({ done: true, done_at: new Date().toISOString(), done_by: doneBy || null })
+      .eq('id', taskId)
+      .select()
+      .single(),
+  )
+}
+
+export async function reopenTask(taskId) {
+  return unwrap(
+    await supabase
+      .from('kk_tasks')
+      .update({ done: false, done_at: null, done_by: null })
+      .eq('id', taskId)
+      .select()
+      .single(),
+  )
+}
+
+export async function deleteTask(taskId) {
+  return unwrap(await supabase.from('kk_tasks').delete().eq('id', taskId))
+}

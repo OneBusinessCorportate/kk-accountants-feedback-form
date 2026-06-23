@@ -77,3 +77,25 @@ export function roleLabel(role) {
   const key = role.toString().trim().toLowerCase()
   return ROLE_LABELS[key] || role
 }
+
+// ---- Tasks -----------------------------------------------------------------
+
+export const TASK_TYPES = ['mailing', 'report', 'receipt', 'audit', 'contact', 'other']
+
+export const TASK_TYPE_LABELS = {
+  mailing: 'Рассылка',
+  report: 'Отчёт',
+  receipt: 'Квитанция',
+  audit: 'Аудит',
+  contact: 'Связь с клиентом',
+  other: 'Другое',
+}
+
+export const TASK_TYPE_BADGE = {
+  mailing: 'badge-blue',
+  report: 'badge-amber',
+  receipt: 'badge-green',
+  audit: 'badge-gray',
+  contact: 'badge-blue',
+  other: 'badge-gray',
+}

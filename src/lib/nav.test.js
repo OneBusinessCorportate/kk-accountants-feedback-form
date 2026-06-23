@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest'
 import { NAV_LINKS, visibleNavLinks } from './nav'
 
 describe('visibleNavLinks', () => {
-  it('shows only Dashboard + Accountant to a non-manager', () => {
+  it('shows only Dashboard + Accountant + Tasks + Clients to a non-manager', () => {
     const tos = visibleNavLinks(false).map((l) => l.to)
-    expect(tos).toEqual(['/', '/accountant'])
+    expect(tos).toEqual(['/', '/accountant', '/tasks', '/clients'])
   })
 
   it('shows every link to a manager', () => {
     const tos = visibleNavLinks(true).map((l) => l.to)
-    expect(tos).toEqual(['/', '/accountant', '/review', '/admin'])
+    expect(tos).toEqual(['/', '/accountant', '/tasks', '/clients', '/review', '/admin'])
   })
 
   it('only Review and Admin are management-only', () => {
