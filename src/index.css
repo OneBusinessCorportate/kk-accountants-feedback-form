@@ -440,6 +440,14 @@ select:focus {
   min-width: 220px;
 }
 
+/* ---- Period filter pills ---- */
+.period-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 /* ---- States ---- */
 .empty,
 .loading {

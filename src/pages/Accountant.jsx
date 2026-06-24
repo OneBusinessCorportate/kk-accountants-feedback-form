@@ -11,15 +11,35 @@ import { Loading, ErrorMessage, Empty } from '../components/States'
 import { useAuth } from '../lib/AuthContext'
 import { keepOwnProblems } from '../lib/scope'
 
+const PERIODS = [
+  { key: 'today', label: 'Сегодня' },
+  { key: '1d',    label: 'Вчера' },
+  { key: '2d',    label: '2 дня' },
+  { key: '7d',    label: 'Неделя' },
+  { key: 'all',   label: 'Всё время' },
+]
+
+function sinceForPeriod(key) {
+  if (key === 'all') return undefined
+  if (key === 'today') {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString()
+  }
+  const days = key === '1d' ? 1 : key === '2d' ? 2 : 7
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+}
+
 export default function Accountant() {
   const { access, isSupervisor } = useAuth()
   const [accountants, setAccountants] = useState([])
   const [accountantId, setAccountantId] = useState('')
+  const [period, setPeriod] = useState('2d')
   const [problems, setProblems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  // Monotonic request id so changing the accountant filter quickly can't let a
-  // stale response overwrite a newer one, and unmounted writes are dropped.
+  // Monotonic request id so changing filters quickly can't let a stale
+  // response overwrite a newer one, and unmounted writes are dropped.
   const reqRef = useRef(0)
 
   // Only supervisors get the "filter by accountant" picker; a regular
@@ -35,13 +55,12 @@ export default function Accountant() {
     const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
-    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
     fetchProblems({
       // Supervisors may filter server-side; scoped accountants fetch all
       // actionable rows and are narrowed to their own client-side.
       accountantId: isSupervisor ? accountantId || undefined : undefined,
       statusIn: ACCOUNTANT_ACTIONABLE,
-      since: twoDaysAgo,
+      since: sinceForPeriod(period),
     })
       .then((data) => {
         if (reqId !== reqRef.current) return
@@ -59,7 +78,7 @@ export default function Accountant() {
     return () => {
       reqRef.current++
     }
-  }, [accountantId, isSupervisor, access])
+  }, [accountantId, period, isSupervisor, access])
 
   // Most urgent / longest-waiting first, and count what's overdue.
   const ordered = useMemo(() => sortQueue(problems), [problems])
@@ -94,6 +113,18 @@ export default function Accountant() {
           Показаны проблемы, назначенные вам: <b>{access?.full_name}</b>
         </div>
       )}
+
+      <div className="period-pills">
+        {PERIODS.map(({ key, label }) => (
+          <button
+            key={key}
+            className={`btn btn-sm ${period === key ? '' : 'btn-secondary'}`}
+            onClick={() => setPeriod(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <ErrorMessage error={error} />
 
