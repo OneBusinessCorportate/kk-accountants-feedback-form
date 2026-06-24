@@ -1,0 +1,5 @@
+/* Tailwind utilities scoped to the Accounting dashboard page only.
+   Preflight (CSS reset) is disabled in tailwind.config.js so existing
+   app styles are not affected. */
+@tailwind components;
+@tailwind utilities;

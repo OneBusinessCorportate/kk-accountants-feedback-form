@@ -16,6 +16,7 @@ import Admin from './pages/Admin.jsx'
 import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
 import QAStats from './pages/QAStats.jsx'
+import Accounting from './pages/Accounting.jsx'
 
 export default function App() {
   // Auth gate state machine: loading → (anon | authed | error).
@@ -120,6 +121,7 @@ export default function App() {
             <Route path="/accountant" element={<Accountant />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />
+            <Route path="/accounting" element={<Accounting />} />
             <Route path="/review" element={manage ? <Review /> : <Navigate to="/" replace />} />
             <Route path="/qa-stats" element={manage ? <QAStats /> : <Navigate to="/" replace />} />
             <Route path="/admin" element={manage ? <Admin /> : <Navigate to="/" replace />} />
