@@ -15,7 +15,9 @@ export async function fetchProblems(filters = {}) {
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
   if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
   if (filters.source) query = query.eq('source', filters.source)
-  if (filters.since) query = query.gte('created_at', filters.since)
+  // Non-AI sources (Margarita/Sona reviews) are shown regardless of age;
+  // AI-detected items (unanswered chats, etc.) are capped at the since window.
+  if (filters.since) query = query.or(`source.neq.ai,created_at.gte.${filters.since}`)
 
   return unwrap(await query)
 }

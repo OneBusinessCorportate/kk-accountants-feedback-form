@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
-import { ACCOUNTANT_ACTIONABLE } from '../lib/constants'
+import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
 import {
   formatDate,
   isOverdue,
@@ -182,6 +182,11 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       </div>
 
       <div className="meta">
+        {problem.source && (
+          <span>
+            Источник: <b>{SOURCE_LABELS[problem.source] || problem.source}</b>
+          </span>
+        )}
         {problem.accountant_name && (
           <span>
             Бухгалтер: <b>{problem.accountant_name}</b>
