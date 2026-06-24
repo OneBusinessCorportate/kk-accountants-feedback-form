@@ -11,6 +11,7 @@ function builder(table) {
     eq: vi.fn(() => b),
     in: vi.fn(() => b),
     not: vi.fn(() => b),
+    gte: vi.fn(() => b),
     insert: vi.fn((p) => {
       state.payload = p
       calls.push({ op: 'insert', table, payload: p })

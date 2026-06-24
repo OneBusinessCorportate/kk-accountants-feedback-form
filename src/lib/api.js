@@ -15,6 +15,7 @@ export async function fetchProblems(filters = {}) {
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
   if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
   if (filters.source) query = query.eq('source', filters.source)
+  if (filters.since) query = query.gte('created_at', filters.since)
 
   return unwrap(await query)
 }

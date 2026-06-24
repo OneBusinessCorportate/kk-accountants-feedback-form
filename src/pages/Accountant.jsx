@@ -35,11 +35,13 @@ export default function Accountant() {
     const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
     fetchProblems({
       // Supervisors may filter server-side; scoped accountants fetch all
       // actionable rows and are narrowed to their own client-side.
       accountantId: isSupervisor ? accountantId || undefined : undefined,
       statusIn: ACCOUNTANT_ACTIONABLE,
+      since: twoDaysAgo,
     })
       .then((data) => {
         if (reqId !== reqRef.current) return
