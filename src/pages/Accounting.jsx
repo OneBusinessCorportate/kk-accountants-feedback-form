@@ -302,9 +302,14 @@ function DocumentDetailModal({ params, onClose }) {
                     <div className="px-5 py-10 text-center text-slate-400 text-xs">Нет активностей за выбранный период</div>
                   ) : (
                     <>
-                      <div className="px-5 py-2.5 bg-slate-50 flex items-center justify-between border-b border-slate-100">
+                      <div className="px-5 py-2.5 bg-slate-50 flex items-center justify-between border-b border-slate-100 flex-wrap gap-2">
                         <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Активность по дням</span>
-                        <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">итого: {totalActivityCount}</span>
+                        <div className="flex gap-2 flex-wrap text-[11px] font-semibold">
+                          <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full">Инв: {acts.reduce((s,a)=>s+(a.invoices_issued??0),0)}</span>
+                          <span className="bg-violet-50 text-violet-700 px-2 py-0.5 rounded-full">Отч: {acts.reduce((s,a)=>s+(a.reports_submitted??0),0)}</span>
+                          <span className="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">Зая: {acts.reduce((s,a)=>s+(a.applications_filed??0),0)}</span>
+                          <span className="bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full">Ост: {acts.reduce((s,a)=>s+(a.balance_changes??0),0)}</span>
+                        </div>
                       </div>
                       <table className="w-full text-sm">
                         <thead>
@@ -312,19 +317,55 @@ function DocumentDetailModal({ params, onClose }) {
                             <th className="text-left px-5 py-2">Дата</th>
                             <th className="text-left px-4 py-2">Бухгалтер</th>
                             <th className="text-left px-4 py-2">Система</th>
-                            <th className="text-right px-5 py-2">Кол-во</th>
+                            <th className="text-right px-3 py-2 bg-indigo-50/60">Инв</th>
+                            <th className="text-right px-3 py-2">Отч</th>
+                            <th className="text-right px-3 py-2">Зая</th>
+                            <th className="text-right px-3 py-2">Ост</th>
+                            <th className="text-right px-4 py-2 text-slate-400">Добавлено</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {acts.map(a => (
                             <tr key={a.id} className="hover:bg-indigo-50/20">
                               <td className="px-5 py-2.5 text-xs font-semibold text-slate-700 whitespace-nowrap">{fmtDate(a.activity_date)}</td>
-                              <td className="px-4 py-2.5"><div className="flex items-center gap-1.5"><Avatar name={a.accountant_name} /><span className="text-xs text-slate-600">{a.accountant_name}</span></div></td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex items-center gap-1.5">
+                                  <Avatar name={a.accountant_name} />
+                                  <div>
+                                    <span className="text-xs text-slate-600 block">{a.accountant_name}</span>
+                                    {a.accountant_email && <span className="text-[10px] text-slate-400 block">{a.accountant_email}</span>}
+                                  </div>
+                                </div>
+                              </td>
                               <td className="px-4 py-2.5"><SourcePill src={a.system_source} /></td>
-                              <td className="px-5 py-2.5 text-right"><span className="text-sm font-bold text-indigo-700 tabular-nums">{a[field] ?? 0}</span></td>
+                              <td className="px-3 py-2.5 text-right bg-indigo-50/30">
+                                <span className={`tabular-nums text-xs font-bold ${(a.invoices_issued ?? 0) > 0 ? 'text-indigo-700' : 'text-slate-300'}`}>{a.invoices_issued ?? 0}</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right">
+                                <span className={`tabular-nums text-xs font-semibold ${(a.reports_submitted ?? 0) > 0 ? 'text-violet-700' : 'text-slate-300'}`}>{a.reports_submitted ?? 0}</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right">
+                                <span className={`tabular-nums text-xs font-semibold ${(a.applications_filed ?? 0) > 0 ? 'text-amber-700' : 'text-slate-300'}`}>{a.applications_filed ?? 0}</span>
+                              </td>
+                              <td className="px-3 py-2.5 text-right">
+                                <span className={`tabular-nums text-xs font-semibold ${(a.balance_changes ?? 0) > 0 ? 'text-rose-700' : 'text-slate-300'}`}>{a.balance_changes ?? 0}</span>
+                              </td>
+                              <td className="px-4 py-2.5 text-right text-[10px] text-slate-400 whitespace-nowrap">
+                                {a.created_at ? new Date(a.created_at).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—'}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
+                        <tfoot>
+                          <tr className="bg-indigo-50/50 border-t border-indigo-100 text-xs font-bold">
+                            <td className="px-5 py-2 text-slate-500" colSpan={3}>Итого</td>
+                            <td className="px-3 py-2 text-right text-indigo-700 tabular-nums bg-indigo-50/60">{acts.reduce((s,a) => s+(a.invoices_issued??0),0)}</td>
+                            <td className="px-3 py-2 text-right text-violet-700 tabular-nums">{acts.reduce((s,a) => s+(a.reports_submitted??0),0)}</td>
+                            <td className="px-3 py-2 text-right text-amber-700 tabular-nums">{acts.reduce((s,a) => s+(a.applications_filed??0),0)}</td>
+                            <td className="px-3 py-2 text-right text-rose-700 tabular-nums">{acts.reduce((s,a) => s+(a.balance_changes??0),0)}</td>
+                            <td />
+                          </tr>
+                        </tfoot>
                       </table>
                     </>
                   )}
