@@ -428,8 +428,8 @@ function DocumentDetailModal({ params, onClose }) {
 
 // ─── Add Comment Modal ─────────────────────────────────────────────────────────
 
-function AddCommentModal({ employees, companies, access, canManage, onSave, onClose }) {
-  const defaultName = canManage ? (employees[0]?.full_name ?? '') : (access?.full_name ?? '')
+function AddCommentModal({ accountantNames, companies, access, canManage, onSave, onClose }) {
+  const defaultName = canManage ? (accountantNames[0] ?? '') : (access?.full_name ?? '')
   const [form, setForm] = useState({
     accountant_name: defaultName,
     company_name: '',
@@ -459,7 +459,7 @@ function AddCommentModal({ employees, companies, access, canManage, onSave, onCl
             {canManage ? (
               <select value={form.accountant_name} onChange={e => setForm(f => ({ ...f, accountant_name: e.target.value }))}
                 className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                {employees.map(e => <option key={e.id} value={e.full_name}>{e.full_name}</option>)}
+                {accountantNames.map(name => <option key={name} value={name}>{name}</option>)}
               </select>
             ) : (
               <p className="mt-1 px-3 py-2.5 bg-slate-50 rounded-xl text-sm text-slate-700 font-medium border border-slate-200">{form.accountant_name}</p>
@@ -505,7 +505,6 @@ export default function Accounting() {
 
   const [employees, setEmployees] = useState([])
   const [companies, setCompanies] = useState([])
-  const [artemCompanies, setArtemComp] = useState([])
   const [activities, setActivities] = useState([])
   const [comments, setComments] = useState([])
 
@@ -547,16 +546,11 @@ export default function Accounting() {
       ? supabase.from('employees').select('id, full_name, role, is_active').in('role', ['accountant', 'head_accountant']).eq('is_active', true).order('full_name')
       : Promise.resolve({ data: [] })
 
-    const artemQ = canManage
-      ? artyom.from('artem_companies').select('id, company_name, contract_number, tin, is_active').order('company_name')
-      : Promise.resolve({ data: [] })
-
-    Promise.all([compQ, empQ, artemQ]).then(([{ data: comp }, { data: emp }, { data: artem }]) => {
+    Promise.all([compQ, empQ]).then(([{ data: comp }, { data: emp }]) => {
       setCompanies(comp ?? [])
       // Deduplicate employees by full_name
       const seen = new Set()
       setEmployees((emp ?? []).filter(e => { if (seen.has(e.full_name)) return false; seen.add(e.full_name); return true }))
-      setArtemComp(artem ?? [])
     }).finally(() => setLoadingStatic(false))
   }, [canManage, access?.full_name]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -648,16 +642,28 @@ export default function Accounting() {
     emptyTotals()
   ), [companyRows])
 
-  const missingCompanies = useMemo(() => {
-    const ourNames = new Set(companies.map(c => c.company_name.trim().toLowerCase()))
-    return artemCompanies.filter(c => !ourNames.has(c.company_name.trim().toLowerCase()))
-  }, [companies, artemCompanies])
+  // Companies with activity data that aren't formally registered in ob_accounting_companies.
+  // Uses current filtered activities so managers can scope the gap check by date/accountant.
+  const orphanActivities = useMemo(() => {
+    const obNames = new Set(companies.map(c => c.company_name.trim().toLowerCase()))
+    const seen = new Map()
+    for (const a of activities) {
+      const key = a.company_name?.trim().toLowerCase()
+      if (key && !obNames.has(key) && !seen.has(key)) {
+        seen.set(key, { company_name: a.company_name, accountant_name: a.accountant_name || '—' })
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.company_name.localeCompare(b.company_name, 'ru'))
+  }, [companies, activities])
 
+  // Combine KK employees (from main Supabase) with Artyom-specific accountant names
+  // from ob_accounting_companies (e.g. "OB Accounting", "Tatev Altunyan") so the
+  // filter dropdown shows everyone with data.
   const accountantList = useMemo(() => {
-    const s = new Set()
-    for (const c of companies) if (c.accountant_name) s.add(c.accountant_name)
-    return Array.from(s).sort()
-  }, [companies])
+    const names = new Set(employees.map(e => e.full_name))
+    for (const c of companies) if (c.accountant_name) names.add(c.accountant_name)
+    return Array.from(names).sort()
+  }, [employees, companies])
 
   const handleAddComment = async (form) => {
     if (!artyom) throw new Error('Artyom DB не настроен')
@@ -684,7 +690,7 @@ export default function Accounting() {
 
   const tabs = [
     ['companies', `По компаниям (${companyRows.length})`],
-    ...(canManage ? [['missing', `⚠️ Не добавлены (${missingCompanies.length})`]] : []),
+    ...(canManage ? [['missing', `⚠️ Пробелы${orphanActivities.length > 0 ? ` (${orphanActivities.length})` : ''}`]] : []),
     ['comments', `💬 Комментарии (${comments.length})`],
   ]
 
@@ -755,8 +761,8 @@ export default function Accounting() {
           <KpiCard label="Изменений остатков" value={kpi.balance.toLocaleString('ru-RU')} icon="⚖️" accent="bg-rose-50 text-rose-600"
             sub={source !== 'all' ? SRC_LABEL[source] : 'все системы'} />
           {canManage && (
-            <KpiCard label="Нет в бухгалтерии" value={missingCompanies.length} icon="⚠️" accent="bg-orange-50 text-orange-500"
-              sub={`у Артёма ${artemCompanies.length} · у нас ${companies.length}`} />
+            <KpiCard label="Не в реестре" value={orphanActivities.length} icon="⚠️" accent="bg-orange-50 text-orange-500"
+              sub={`активны, но без записи · всего в реестре: ${companies.length}`} />
           )}
         </div>
 
@@ -790,9 +796,15 @@ export default function Accounting() {
             </div>
 
             {companyRows.length === 0 && !loading ? (
-              <div className="text-center py-20 text-slate-400">
+              <div className="px-5 py-10 text-center text-slate-400">
                 <p className="text-4xl mb-3">📭</p>
                 <p className="text-sm font-medium">Нет данных за выбранный период</p>
+                {!canManage && (
+                  <p className="text-xs text-amber-600 mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 inline-block">
+                    Ваши задачи могут быть записаны под «OB Accounting» (командный аккаунт).
+                    Выберите «OB Accounting» в фильтре бухгалтеров или обратитесь к руководителю.
+                  </p>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -826,8 +838,18 @@ export default function Accounting() {
                       })
                       return (
                         <tr key={row.company_name} className={`hover:bg-indigo-50/30 transition-colors ${i % 2 ? 'bg-slate-50/30' : ''}`}>
-                          <td className="px-5 py-3 font-medium text-slate-800 whitespace-nowrap max-w-[220px]">
+                          <td className="px-5 py-3 font-medium text-slate-800 whitespace-nowrap max-w-[240px]">
                             <span className="block truncate" title={row.company_name}>{row.company_name}</span>
+                            {comp && (comp.armsoft_company_id || comp.tax_account_id) && (
+                              <div className="flex gap-1 mt-0.5 flex-wrap">
+                                {comp.armsoft_company_id && (
+                                  <span className="text-[9px] text-violet-600 bg-violet-50 px-1 rounded font-mono leading-4 border border-violet-100">AS {comp.armsoft_company_id}</span>
+                                )}
+                                {comp.tax_account_id && (
+                                  <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded font-mono leading-4 border border-emerald-100">TS {comp.tax_account_id}</span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -874,47 +896,112 @@ export default function Accounting() {
           </div>
         )}
 
-        {/* TAB 2 — Missing companies (management only) */}
+        {/* TAB 2 — Gap analysis (management only) */}
         {activeTab === 'missing' && canManage && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-              <div>
-                <h2 className="font-semibold text-slate-800 text-sm">Компании Артёма, которых нет в бухгалтерии</h2>
+          <div className="space-y-4">
+            {/* Accountant coverage summary */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-800 text-sm">Покрытие по бухгалтерам</h2>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Всего у Артёма: <strong>{artemCompanies.length}</strong> · В бухгалтерии: <strong>{companies.length}</strong> · Не добавлено: <strong className="text-rose-600">{missingCompanies.length}</strong>
+                  Число компаний и суммарная активность за выбранный период
                 </p>
               </div>
-              <span className="text-3xl font-bold text-rose-500">{missingCompanies.length}</span>
-            </div>
-            {missingCompanies.length === 0 ? (
-              <div className="text-center py-20 text-slate-400">
-                <p className="text-4xl mb-3">✅</p>
-                <p className="text-sm font-medium">Все компании Артёма добавлены в бухгалтерию</p>
-              </div>
-            ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-[11px] text-slate-500 font-semibold uppercase tracking-wide border-b border-slate-200">
-                      <th className="text-left px-5 py-3">#</th>
-                      <th className="text-left px-4 py-3">Компания</th>
-                      <th className="text-left px-4 py-3">Договор</th>
-                      <th className="text-left px-4 py-3">ИНН</th>
+                      <th className="text-left px-5 py-3">Бухгалтер</th>
+                      <th className="text-right px-4 py-3">Компании</th>
+                      <th className="text-right px-4 py-3">Инв</th>
+                      <th className="text-right px-4 py-3">Отч</th>
+                      <th className="text-right px-4 py-3">Зая</th>
+                      <th className="text-right px-4 py-3">Ост</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {missingCompanies.map((c, i) => (
-                      <tr key={c.id} className="hover:bg-rose-50/40 transition-colors">
-                        <td className="px-5 py-3 text-slate-400 font-mono text-xs">{i + 1}</td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{c.company_name}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.contract_number ?? '—'}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500">{c.tin ?? '—'}</td>
-                      </tr>
-                    ))}
+                    {(() => {
+                      const byAcc = new Map()
+                      for (const row of companyRows) {
+                        const acc = row.accountant_name || '—'
+                        if (!byAcc.has(acc)) byAcc.set(acc, { companies: 0, invoices: 0, reports: 0, applications: 0, balance: 0 })
+                        const s = byAcc.get(acc)
+                        s.companies++
+                        s.invoices += row.total.invoices
+                        s.reports += row.total.reports
+                        s.applications += row.total.applications
+                        s.balance += row.total.balance
+                      }
+                      return Array.from(byAcc.entries())
+                        .sort((a, b) => (b[1].invoices + b[1].reports + b[1].applications + b[1].balance) - (a[1].invoices + a[1].reports + a[1].applications + a[1].balance))
+                        .map(([acc, s]) => (
+                          <tr key={acc} className="hover:bg-indigo-50/20 transition-colors">
+                            <td className="px-5 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <Avatar name={acc} />
+                                <span className="text-xs font-medium text-slate-700">{acc}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-700 tabular-nums">{s.companies}</td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums text-indigo-700">{s.invoices || '—'}</td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums text-violet-700">{s.reports || '—'}</td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums text-amber-700">{s.applications || '—'}</td>
+                            <td className="px-4 py-2.5 text-right text-xs tabular-nums text-rose-700">{s.balance || '—'}</td>
+                          </tr>
+                        ))
+                    })()}
                   </tbody>
                 </table>
+                {companyRows.length === 0 && (
+                  <p className="text-center text-sm text-slate-400 py-8">Нет данных за выбранный период</p>
+                )}
               </div>
-            )}
+            </div>
+
+            {/* Companies with activity but not registered in ob_accounting_companies */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold text-slate-800 text-sm">Активность без записи в реестре</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Компании из <code className="text-violet-600">accounting_activities</code>, которых нет в <code className="text-indigo-600">ob_accounting_companies</code>
+                  </p>
+                </div>
+                <span className={`text-3xl font-bold ${orphanActivities.length > 0 ? 'text-rose-500' : 'text-slate-300'}`}>{orphanActivities.length}</span>
+              </div>
+              {orphanActivities.length === 0 ? (
+                <div className="text-center py-12 text-slate-400">
+                  <p className="text-3xl mb-2">✅</p>
+                  <p className="text-sm font-medium">Все активные компании добавлены в реестр</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-[11px] text-slate-500 font-semibold uppercase tracking-wide border-b border-slate-200">
+                        <th className="text-left px-5 py-3">#</th>
+                        <th className="text-left px-4 py-3">Компания</th>
+                        <th className="text-left px-4 py-3">Бухгалтер (из активности)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {orphanActivities.map((c, i) => (
+                        <tr key={c.company_name} className="hover:bg-rose-50/30 transition-colors">
+                          <td className="px-5 py-3 text-slate-400 font-mono text-xs">{i + 1}</td>
+                          <td className="px-4 py-3 font-medium text-slate-800">{c.company_name}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500">
+                            <div className="flex items-center gap-1.5">
+                              <Avatar name={c.accountant_name} />
+                              {c.accountant_name}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -978,7 +1065,7 @@ export default function Accounting() {
 
       {showModal && (
         <AddCommentModal
-          employees={employees}
+          accountantNames={accountantList}
           companies={companies}
           access={access}
           canManage={canManage}
