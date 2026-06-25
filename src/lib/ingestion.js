@@ -68,6 +68,15 @@ export const ACCOUNTANT_ALIASES = new Map(
   ]),
 )
 
+// Reverse lookup: employee UUID → canonical full_name (e.g. "Lilit Accounting").
+// Used by Clients.jsx to filter ob_accounting_companies without an extra DB query.
+const CANONICAL_BY_UUID = new Map(
+  ACCOUNTANT_ALIAS_ENTRIES.map(([, id, full]) => [id, full]),
+)
+export function canonicalNameByUUID(uuid) {
+  return CANONICAL_BY_UUID.get(uuid) ?? null
+}
+
 /**
  * Resolve a raw source accountant name to { accountant_id, accountant_name }.
  * accountant_id is the employee uuid (so client-side scoping matches), and

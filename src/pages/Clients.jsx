@@ -5,7 +5,7 @@ import { keepOwnProblems } from '../lib/scope'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
 import { artyom } from '../lib/artyomClient'
-import { supabase } from '../lib/supabaseClient'
+import { canonicalNameByUUID } from '../lib/ingestion'
 
 // Columns shown as checkmark cells — the "Maggie's file" columns
 const CHECK_TYPES = ['mailing', 'report', 'receipt']
@@ -48,20 +48,8 @@ export default function Clients() {
   const [searchQuery, setSearchQuery] = useState('')
   const [accountantFilter, setAccountantFilter] = useState('all')
   const [showInactive, setShowInactive] = useState(false)
-  // canonical name from kk_accountant_aliases (e.g. "Lilit Accounting" for "Lilit Khosrovyan")
-  const [canonicalName, setCanonicalName] = useState(null)
-
-  useEffect(() => {
-    if (!access?.id || canManage) return
-    supabase
-      .from('kk_accountant_aliases')
-      .select('full_name')
-      .eq('employee_id', access.id)
-      .limit(1)
-      .then(({ data }) => {
-        if (data?.length) setCanonicalName(data[0].full_name)
-      })
-  }, [access?.id, canManage])
+  // canonical name from ingestion map (e.g. "Lilit Accounting" for "Lilit Khosrovyan")
+  const canonicalName = access?.id ? canonicalNameByUUID(access.id) : null
 
   useEffect(() => {
     let active = true
