@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { artyom, artyomConfigError } from '../lib/artyomClient'
 import { supabase } from '../lib/supabaseClient'
+import { mainProject, normalizeContractNo, splitContractNos } from '../lib/mainClient'
 import '../accounting.css'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -32,6 +33,24 @@ const SRC_PILL = {
   base: 'bg-blue-100 text-blue-700',
   armsoft: 'bg-violet-100 text-violet-700',
   taxservice: 'bg-emerald-100 text-emerald-700',
+}
+
+const DEAL_STAGE_STYLE = {
+  'First Payment / Success': 'bg-emerald-100 text-emerald-700',
+  'In Agr. list -> Waiting for Payment': 'bg-amber-100 text-amber-700',
+  'Signing': 'bg-sky-100 text-sky-700',
+  'Closed Lost': 'bg-rose-100 text-rose-600',
+}
+function dealStageStyle(stage) {
+  return DEAL_STAGE_STYLE[stage] ?? 'bg-slate-100 text-slate-600'
+}
+function dealStageShort(stage) {
+  if (!stage) return ''
+  if (stage === 'First Payment / Success') return 'Активен'
+  if (stage === 'In Agr. list -> Waiting for Payment') return 'Ожидает оплаты'
+  if (stage === 'Signing') return 'Подписание'
+  if (stage === 'Closed Lost') return 'Закрыт'
+  return stage.length > 28 ? stage.slice(0, 26) + '…' : stage
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -507,6 +526,7 @@ export default function Accounting() {
   const [companies, setCompanies] = useState([])
   const [activities, setActivities] = useState([])
   const [comments, setComments] = useState([])
+  const [dealMap, setDealMap] = useState(new Map()) // normalizedContractNo → deal row
 
   const [dateFrom, setDateFrom] = useState(nDaysAgo(29))
   const [dateTo, setDateTo] = useState(todayStr())
@@ -547,11 +567,28 @@ export default function Accounting() {
       ? supabase.from('employees').select('id, full_name, role, is_active').in('role', ['accountant', 'head_accountant']).eq('is_active', true).order('full_name')
       : Promise.resolve({ data: [] })
 
-    Promise.all([compQ, empQ]).then(([{ data: comp }, { data: emp }]) => {
+    // Fetch accounting deals from Main Project (OB CRM sdelki)
+    const dealQ = mainProject
+      .from('OB')
+      .select('"OB/ Agr. №", "Название сделки", "Ответственный", "Этап сделки", "УСЛУГА", "OB/ Agr. Date", "OB/ Type of Agr."')
+      .not('OB/ Agr. №', 'is', null)
+      .neq('OB/ Agr. №', '')
+      .neq('OB/ Agr. №', '-')
+
+    Promise.all([compQ, empQ, dealQ]).then(([{ data: comp }, { data: emp }, { data: deals }]) => {
       setCompanies(comp ?? [])
-      // Deduplicate employees by full_name
       const seen = new Set()
       setEmployees((emp ?? []).filter(e => { if (seen.has(e.full_name)) return false; seen.add(e.full_name); return true }))
+
+      // Build map: normalized contract number → deal
+      const map = new Map()
+      for (const deal of (deals ?? [])) {
+        const field = deal['OB/ Agr. №']
+        for (const no of splitContractNos(field)) {
+          if (!map.has(no)) map.set(no, deal)
+        }
+      }
+      setDealMap(map)
     }).finally(() => setLoadingStatic(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -592,6 +629,12 @@ export default function Accounting() {
     for (const c of companies) m.set(c.company_name, c)
     return m
   }, [companies])
+
+  // contractNo → deal: look up deal for a company by its contract_number
+  const getDeal = useCallback((contractNo) => {
+    if (!contractNo) return null
+    return dealMap.get(normalizeContractNo(contractNo)) ?? null
+  }, [dealMap])
 
   const companyRows = useMemo(() => {
     const map = new Map()
@@ -689,8 +732,14 @@ export default function Accounting() {
 
   const loading = loadingStatic || loadingDynamic
 
+  // Companies with a matched deal
+  const companiesWithDeal = useMemo(() => {
+    return companies.filter(c => c.contract_number && getDeal(c.contract_number))
+  }, [companies, getDeal])
+
   const tabs = [
     ['companies', `По компаниям (${companyRows.length})`],
+    ['deals', `📋 Сделки (${companiesWithDeal.length})`],
     ['missing', `⚠️ Пробелы${orphanActivities.length > 0 ? ` (${orphanActivities.length})` : ''}`],
     ['comments', `💬 Комментарии (${comments.length})`],
   ]
@@ -822,6 +871,7 @@ export default function Accounting() {
                   <tbody className="divide-y divide-slate-100">
                     {companyRows.map((row, i) => {
                       const comp = companyIdMap.get(row.company_name)
+                      const deal = comp ? getDeal(comp.contract_number) : null
                       const ctx = (sys) => ({
                         company_name: row.company_name,
                         accountant_name: row.accountant_name,
@@ -833,16 +883,25 @@ export default function Accounting() {
                         <tr key={row.company_name} className={`hover:bg-indigo-50/30 transition-colors ${i % 2 ? 'bg-slate-50/30' : ''}`}>
                           <td className="px-5 py-3 font-medium text-slate-800 whitespace-nowrap max-w-[240px]">
                             <span className="block truncate" title={row.company_name}>{row.company_name}</span>
-                            {comp && (comp.armsoft_company_id || comp.tax_account_id) && (
-                              <div className="flex gap-1 mt-0.5 flex-wrap">
-                                {comp.armsoft_company_id && (
-                                  <span className="text-[9px] text-violet-600 bg-violet-50 px-1 rounded font-mono leading-4 border border-violet-100">AS {comp.armsoft_company_id}</span>
-                                )}
-                                {comp.tax_account_id && (
-                                  <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded font-mono leading-4 border border-emerald-100">TS {comp.tax_account_id}</span>
-                                )}
-                              </div>
-                            )}
+                            <div className="flex gap-1 mt-0.5 flex-wrap">
+                              {comp?.contract_number && (
+                                <span className="text-[9px] text-slate-500 bg-slate-100 px-1 rounded font-mono leading-4">№{comp.contract_number}</span>
+                              )}
+                              {deal && (
+                                <span
+                                  className={`text-[9px] px-1.5 rounded leading-4 font-semibold ${dealStageStyle(deal['Этап сделки'])}`}
+                                  title={deal['Этап сделки']}
+                                >
+                                  {dealStageShort(deal['Этап сделки'])}
+                                </span>
+                              )}
+                              {comp?.armsoft_company_id && (
+                                <span className="text-[9px] text-violet-600 bg-violet-50 px-1 rounded font-mono leading-4 border border-violet-100">AS {comp.armsoft_company_id}</span>
+                              )}
+                              {comp?.tax_account_id && (
+                                <span className="text-[9px] text-emerald-600 bg-emerald-50 px-1 rounded font-mono leading-4 border border-emerald-100">TS {comp.tax_account_id}</span>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap">
                             <div className="flex items-center gap-2">
@@ -889,7 +948,75 @@ export default function Accounting() {
           </div>
         )}
 
-        {/* TAB 2 — Gap analysis (management only) */}
+        {/* TAB 2 — Deals (sdelki from Main Project OB table) */}
+        {activeTab === 'deals' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="font-semibold text-slate-800 text-sm">Клиенты из CRM (сделки)</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Компании из реестра, у которых найдена сделка в AMO CRM · сопоставление по номеру договора
+                </p>
+              </div>
+              <span className="text-2xl font-bold text-indigo-600">{companiesWithDeal.length}</span>
+            </div>
+            {companiesWithDeal.length === 0 ? (
+              <div className="text-center py-16 text-slate-400">
+                <p className="text-3xl mb-2">🔍</p>
+                <p className="text-sm font-medium">Сделки не найдены</p>
+                <p className="text-xs mt-1">Данные загружаются или нет совпадений по номерам договоров</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-[11px] text-slate-500 font-semibold uppercase tracking-wide border-b border-slate-200">
+                      <th className="text-left px-5 py-3 whitespace-nowrap">Компания</th>
+                      <th className="text-left px-4 py-3 whitespace-nowrap">Бухгалтер</th>
+                      <th className="text-left px-4 py-3 whitespace-nowrap">Дог. №</th>
+                      <th className="text-left px-4 py-3 whitespace-nowrap">Этап сделки</th>
+                      <th className="text-left px-4 py-3 whitespace-nowrap">Дата договора</th>
+                      <th className="text-left px-4 py-3 whitespace-nowrap">Услуга</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {companiesWithDeal
+                      .filter(c => accountantFilter === 'all' || c.accountant_name === accountantFilter)
+                      .map((c, i) => {
+                        const deal = getDeal(c.contract_number)
+                        if (!deal) return null
+                        return (
+                          <tr key={c.id} className={`hover:bg-indigo-50/30 transition-colors ${i % 2 ? 'bg-slate-50/20' : ''}`}>
+                            <td className="px-5 py-2.5 font-medium text-slate-800 max-w-[200px]">
+                              <span className="block truncate" title={c.company_name}>{c.company_name}</span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <Avatar name={c.accountant_name || '?'} />
+                                <span className="text-xs text-slate-600">{c.accountant_name || '—'}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{c.contract_number}</td>
+                            <td className="px-4 py-2.5">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${dealStageStyle(deal['Этап сделки'])}`}>
+                                {dealStageShort(deal['Этап сделки'])}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{fmtDate(deal['OB/ Agr. Date'])}</td>
+                            <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[200px]">
+                              <span className="block truncate" title={deal['УСЛУГА']}>{deal['УСЛУГА']}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 3 — Gap analysis (management only) */}
         {activeTab === 'missing' && canManage && (
           <div className="space-y-4">
             {/* Accountant coverage summary */}
@@ -998,7 +1125,7 @@ export default function Accounting() {
           </div>
         )}
 
-        {/* TAB 3 — Comments */}
+        {/* TAB 4 — Comments */}
         {activeTab === 'comments' && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
