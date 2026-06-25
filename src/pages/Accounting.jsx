@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../lib/AuthContext'
 import { artyom, artyomConfigError } from '../lib/artyomClient'
 import { supabase } from '../lib/supabaseClient'
@@ -159,9 +159,14 @@ function DocumentDetailModal({ params, onClose }) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
 
+  const [expandedAct, setExpandedAct] = useState(null) // { actId, docType }
+  const [actDocs, setActDocs] = useState({}) // key `actId:docType` → array of document_records
+  const [actDocsLoading, setActDocsLoading] = useState({})
+
   const fetchAll = useCallback(async () => {
     if (!artyom) return
     setLoading(true); setFetchError('')
+    setExpandedAct(null); setActDocs({}); setActDocsLoading({})
     try {
       const field = DOC_FIELD[params.document_type]
 
@@ -206,6 +211,26 @@ function DocumentDetailModal({ params, onClose }) {
       setLoading(false)
     }
   }, [params])
+
+  const toggleActDocs = useCallback(async (act, docType) => {
+    const key = `${act.id}:${docType}`
+    if (expandedAct?.key === key) { setExpandedAct(null); return }
+    setExpandedAct({ key, actId: act.id, docType })
+    if (actDocs[key] !== undefined) return
+    setActDocsLoading(p => ({ ...p, [key]: true }))
+    try {
+      const { data } = await artyom
+        .from('document_records')
+        .select('*')
+        .eq('company_name', params.company_name)
+        .eq('document_type', docType)
+        .eq('document_date', act.activity_date)
+        .eq('system_source', act.system_source)
+        .order('document_date', { ascending: false })
+      setActDocs(p => ({ ...p, [key]: data ?? [] }))
+    } catch { setActDocs(p => ({ ...p, [key]: [] })) }
+    finally { setActDocsLoading(p => ({ ...p, [key]: false })) }
+  }, [expandedAct, actDocs, params])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -325,36 +350,88 @@ function DocumentDetailModal({ params, onClose }) {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {acts.map(a => (
-                            <tr key={a.id} className="hover:bg-indigo-50/20">
-                              <td className="px-5 py-2.5 text-xs font-semibold text-slate-700 whitespace-nowrap">{fmtDate(a.activity_date)}</td>
-                              <td className="px-4 py-2.5">
-                                <div className="flex items-center gap-1.5">
-                                  <Avatar name={a.accountant_name} />
-                                  <div>
-                                    <span className="text-xs text-slate-600 block">{a.accountant_name}</span>
-                                    {a.accountant_email && <span className="text-[10px] text-slate-400 block">{a.accountant_email}</span>}
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="px-4 py-2.5"><SourcePill src={a.system_source} /></td>
-                              <td className="px-3 py-2.5 text-right bg-indigo-50/30">
-                                <span className={`tabular-nums text-xs font-bold ${(a.invoices_issued ?? 0) > 0 ? 'text-indigo-700' : 'text-slate-300'}`}>{a.invoices_issued ?? 0}</span>
-                              </td>
-                              <td className="px-3 py-2.5 text-right">
-                                <span className={`tabular-nums text-xs font-semibold ${(a.reports_submitted ?? 0) > 0 ? 'text-violet-700' : 'text-slate-300'}`}>{a.reports_submitted ?? 0}</span>
-                              </td>
-                              <td className="px-3 py-2.5 text-right">
-                                <span className={`tabular-nums text-xs font-semibold ${(a.applications_filed ?? 0) > 0 ? 'text-amber-700' : 'text-slate-300'}`}>{a.applications_filed ?? 0}</span>
-                              </td>
-                              <td className="px-3 py-2.5 text-right">
-                                <span className={`tabular-nums text-xs font-semibold ${(a.balance_changes ?? 0) > 0 ? 'text-rose-700' : 'text-slate-300'}`}>{a.balance_changes ?? 0}</span>
-                              </td>
-                              <td className="px-4 py-2.5 text-right text-[10px] text-slate-400 whitespace-nowrap">
-                                {a.created_at ? new Date(a.created_at).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—'}
-                              </td>
-                            </tr>
-                          ))}
+                          {acts.map(a => {
+                            const isExpanded = expandedAct?.actId === a.id
+                            const expandKey = isExpanded ? expandedAct.key : null
+                            const docs = expandKey ? (actDocs[expandKey] ?? []) : []
+                            const docsLoading = expandKey ? !!actDocsLoading[expandKey] : false
+                            const countBtn = (count, docType, colorOn, colorOff, bg) => (
+                              count > 0
+                                ? <button onClick={() => toggleActDocs(a, docType)}
+                                    className={`tabular-nums text-xs font-bold ${colorOn} hover:underline cursor-pointer`}>
+                                    {count}
+                                  </button>
+                                : <span className={`tabular-nums text-xs font-bold ${colorOff}`}>{count}</span>
+                            )
+                            return (
+                              <React.Fragment key={a.id}>
+                                <tr className={`hover:bg-indigo-50/20 ${isExpanded ? 'bg-indigo-50/10' : ''}`}>
+                                  <td className="px-5 py-2.5 text-xs font-semibold text-slate-700 whitespace-nowrap">{fmtDate(a.activity_date)}</td>
+                                  <td className="px-4 py-2.5">
+                                    <div className="flex items-center gap-1.5">
+                                      <Avatar name={a.accountant_name} />
+                                      <div>
+                                        <span className="text-xs text-slate-600 block">{a.accountant_name}</span>
+                                        {a.accountant_email && <span className="text-[10px] text-slate-400 block">{a.accountant_email}</span>}
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2.5"><SourcePill src={a.system_source} /></td>
+                                  <td className="px-3 py-2.5 text-right bg-indigo-50/30">
+                                    {countBtn(a.invoices_issued ?? 0, 'invoice', 'text-indigo-700', 'text-slate-300')}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    {countBtn(a.reports_submitted ?? 0, 'report', 'text-violet-700', 'text-slate-300')}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    {countBtn(a.applications_filed ?? 0, 'application', 'text-amber-700', 'text-slate-300')}
+                                  </td>
+                                  <td className="px-3 py-2.5 text-right">
+                                    {countBtn(a.balance_changes ?? 0, 'balance_change', 'text-rose-700', 'text-slate-300')}
+                                  </td>
+                                  <td className="px-4 py-2.5 text-right text-[10px] text-slate-400 whitespace-nowrap">
+                                    {a.created_at ? new Date(a.created_at).toLocaleDateString('ru-RU', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '—'}
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan={8} className="px-5 py-3 bg-indigo-50/40 border-b border-indigo-100">
+                                      {docsLoading ? (
+                                        <div className="flex items-center gap-2 text-xs text-slate-500"><Spinner /> Загрузка документов…</div>
+                                      ) : docs.length === 0 ? (
+                                        <p className="text-xs text-slate-400 italic">Нет связанных документов за этот день</p>
+                                      ) : (
+                                        <table className="w-full text-xs border-collapse">
+                                          <thead>
+                                            <tr className="text-[10px] text-slate-500 font-semibold uppercase border-b border-indigo-100">
+                                              <th className="text-left pb-1 pr-4">№ документа</th>
+                                              <th className="text-left pb-1 pr-4">Дата</th>
+                                              <th className="text-left pb-1 pr-4">Описание</th>
+                                              <th className="text-right pb-1 pr-4">Сумма</th>
+                                              <th className="text-left pb-1 pr-4">Период</th>
+                                              <th className="text-left pb-1">Заметки</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-indigo-100/60">
+                                            {docs.map(doc => (
+                                              <tr key={doc.id} className="hover:bg-white/60">
+                                                <td className="py-1.5 pr-4 font-mono text-indigo-600 whitespace-nowrap">{doc.document_number ?? '—'}</td>
+                                                <td className="py-1.5 pr-4 text-slate-600 whitespace-nowrap">{fmtDate(doc.document_date)}</td>
+                                                <td className="py-1.5 pr-4 text-slate-700 max-w-[200px]"><span className="block truncate" title={doc.description ?? undefined}>{doc.description ?? '—'}</span></td>
+                                                <td className="py-1.5 pr-4 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">{doc.amount != null ? fmtMoney(doc.amount) : '—'}</td>
+                                                <td className="py-1.5 pr-4 text-slate-600 whitespace-nowrap">{doc.period ?? '—'}</td>
+                                                <td className="py-1.5 text-slate-500 max-w-[150px]"><span className="block truncate" title={doc.notes ?? undefined}>{doc.notes ?? '—'}</span></td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            )
+                          })}
                         </tbody>
                         <tfoot>
                           <tr className="bg-indigo-50/50 border-t border-indigo-100 text-xs font-bold">
