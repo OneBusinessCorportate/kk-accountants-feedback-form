@@ -5,6 +5,7 @@ import { keepOwnProblems } from '../lib/scope'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
 import { artyom } from '../lib/artyomClient'
+import { supabase } from '../lib/supabaseClient'
 
 // Columns shown as checkmark cells — the "Maggie's file" columns
 const CHECK_TYPES = ['mailing', 'report', 'receipt']
@@ -47,6 +48,20 @@ export default function Clients() {
   const [searchQuery, setSearchQuery] = useState('')
   const [accountantFilter, setAccountantFilter] = useState('all')
   const [showInactive, setShowInactive] = useState(false)
+  // canonical name from kk_accountant_aliases (e.g. "Lilit Accounting" for "Lilit Khosrovyan")
+  const [canonicalName, setCanonicalName] = useState(null)
+
+  useEffect(() => {
+    if (!access?.id || canManage) return
+    supabase
+      .from('kk_accountant_aliases')
+      .select('full_name')
+      .eq('employee_id', access.id)
+      .limit(1)
+      .then(({ data }) => {
+        if (data?.length) setCanonicalName(data[0].full_name)
+      })
+  }, [access?.id, canManage])
 
   useEffect(() => {
     let active = true
@@ -81,9 +96,11 @@ export default function Clients() {
   }, [companies])
 
   const filteredCompanies = useMemo(() => {
-    // Regular accountants see their own clients by default; managers see all
+    // Regular accountants see their own clients by default; managers see all.
+    // canonicalName bridges "Lilit Khosrovyan" → "Lilit Accounting" stored in ob_accounting_companies.
+    const selfName = !canManage ? (canonicalName || access?.full_name) : null
     const effectiveFilter = accountantFilter !== 'all' ? accountantFilter
-      : (!canManage && access?.full_name) ? access.full_name
+      : selfName ? selfName
       : 'all'
 
     return companies.filter(c => {
@@ -98,7 +115,7 @@ export default function Clients() {
       }
       return true
     })
-  }, [companies, accountantFilter, showInactive, searchQuery, access, canManage])
+  }, [companies, accountantFilter, showInactive, searchQuery, access, canManage, canonicalName])
 
   const registrySummary = useMemo(() => {
     const total = filteredCompanies.length
