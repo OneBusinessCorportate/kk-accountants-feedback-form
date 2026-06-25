@@ -520,8 +520,9 @@ export default function Accounting() {
   const [loadingStatic, setLoadingStatic] = useState(true)
   const [loadingDynamic, setLoadingDynamic] = useState(false)
 
-  // For non-managers, force accountant filter to their own name
-  const effectiveAccountant = canManage ? accountantFilter : (access?.full_name ?? 'all')
+  // Accounting page is a shared reporting tool — everyone sees all data and can filter.
+  // (Per-accountant scoping applies to the Problems/Dashboard, not here.)
+  const effectiveAccountant = accountantFilter
 
   if (artyomConfigError) {
     return (
@@ -538,9 +539,9 @@ export default function Accounting() {
 
   useEffect(() => {
     if (!artyom) return
-    const compQ = canManage
-      ? artyom.from('ob_accounting_companies').select('id, company_name, contract_number, accountant_name, is_active, armsoft_company_id, tax_account_id').order('company_name')
-      : artyom.from('ob_accounting_companies').select('id, company_name, contract_number, accountant_name, is_active, armsoft_company_id, tax_account_id').eq('accountant_name', access?.full_name ?? '').order('company_name')
+    const compQ = artyom.from('ob_accounting_companies')
+      .select('id, company_name, contract_number, accountant_name, is_active, armsoft_company_id, tax_account_id')
+      .order('company_name')
 
     const empQ = supabase
       ? supabase.from('employees').select('id, full_name, role, is_active').in('role', ['accountant', 'head_accountant']).eq('is_active', true).order('full_name')
@@ -552,7 +553,7 @@ export default function Accounting() {
       const seen = new Set()
       setEmployees((emp ?? []).filter(e => { if (seen.has(e.full_name)) return false; seen.add(e.full_name); return true }))
     }).finally(() => setLoadingStatic(false))
-  }, [canManage, access?.full_name]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadDynamic = useCallback(() => {
     if (!artyom) return
@@ -690,7 +691,7 @@ export default function Accounting() {
 
   const tabs = [
     ['companies', `По компаниям (${companyRows.length})`],
-    ...(canManage ? [['missing', `⚠️ Пробелы${orphanActivities.length > 0 ? ` (${orphanActivities.length})` : ''}`]] : []),
+    ['missing', `⚠️ Пробелы${orphanActivities.length > 0 ? ` (${orphanActivities.length})` : ''}`],
     ['comments', `💬 Комментарии (${comments.length})`],
   ]
 
@@ -702,19 +703,11 @@ export default function Accounting() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4 flex flex-wrap items-center gap-3">
           <span className="text-sm font-bold text-slate-800 mr-2">Отчётность бухгалтерии</span>
 
-          {canManage && (
-            <select value={accountantFilter} onChange={e => setAccountantFilter(e.target.value)}
-              className="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
-              <option value="all">Все бухгалтеры</option>
-              {accountantList.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-          )}
-          {!canManage && (
-            <span className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-xl text-xs font-semibold">
-              <Avatar name={access?.full_name ?? ''} />
-              {access?.full_name}
-            </span>
-          )}
+          <select value={accountantFilter} onChange={e => setAccountantFilter(e.target.value)}
+            className="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
+            <option value="all">Все бухгалтеры</option>
+            {accountantList.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
 
           <select value={companyFilter} onChange={e => setCompanyFilter(e.target.value)}
             className="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
