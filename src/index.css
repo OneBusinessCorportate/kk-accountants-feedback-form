@@ -1,0 +1,545 @@
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --border: #e3e8ef;
+  --text: #1f2733;
+  --muted: #66738a;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --green: #16a34a;
+  --amber: #d97706;
+  --red: #dc2626;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.08);
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--primary);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+/* ---- Layout ---- */
+.app {
+  min-height: 100vh;
+}
+
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  font-weight: 700;
+  padding: 16px 0;
+  white-space: nowrap;
+}
+
+/* Logged-in user + sign-out, pushed to the right of the topbar. */
+.topbar-user {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  flex-wrap: wrap;
+}
+.topbar-user .user-name {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.nav a {
+  color: var(--muted);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: 500;
+}
+.nav a:hover {
+  background: var(--bg);
+  text-decoration: none;
+}
+.nav a.active {
+  color: var(--primary);
+  background: #eaf1ff;
+}
+
+.container {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.page-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+.page-subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
+}
+
+/* ---- Cards ---- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+/* Priority accent on the left edge for fast scanning of the queue. */
+.card-prio-1 {
+  border-left: 4px solid var(--red);
+}
+.card-prio-2 {
+  border-left: 4px solid var(--amber);
+}
+.card-prio-3 {
+  border-left: 4px solid var(--border);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+/* Queue backlog summary above the cards. */
+.queue-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.queue-summary b {
+  color: var(--text);
+}
+
+/* Age of a problem next to its detection date. */
+.age {
+  color: var(--muted);
+}
+.age-overdue {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.card-title {
+  margin: 0;
+  font-size: 17px;
+}
+
+/* Single-line card header: title + client + badges on the left, chat right. */
+.card-head-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.head-left {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.head-left .card-title {
+  display: inline;
+}
+.head-right {
+  white-space: nowrap;
+  font-size: 13px;
+}
+.title-client {
+  font-weight: 600;
+}
+.contract-id {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.9em;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 10px 0;
+}
+.meta b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.description {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  white-space: pre-wrap;
+}
+
+/* ---- Stat cards ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+.stat .num {
+  font-size: 30px;
+  font-weight: 700;
+}
+.stat .label {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+/* Draw the eye to an overdue backlog. */
+.stat-alert {
+  border-color: #f5c2c2;
+  background: #fef5f5;
+}
+.stat-alert .num {
+  color: var(--red);
+}
+
+/* ---- Badges ---- */
+.badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-gray {
+  background: #eef1f6;
+  color: #475467;
+}
+.badge-blue {
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+.badge-amber {
+  background: #fef3e2;
+  color: #b45309;
+}
+.badge-green {
+  background: #e7f6ec;
+  color: #15803d;
+}
+.badge-red {
+  background: #fde8e8;
+  color: #b91c1c;
+}
+
+/* ---- Forms ---- */
+label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.field {
+  margin-bottom: 14px;
+}
+textarea,
+input,
+select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+textarea:focus,
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+.required-star {
+  color: var(--red);
+}
+
+/* ---- Buttons ---- */
+.btn {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  background: var(--primary);
+  color: #fff;
+}
+.btn:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--bg);
+}
+.btn-green {
+  background: var(--green);
+}
+.btn-green:hover:not(:disabled) {
+  background: #15803d;
+}
+.btn-amber {
+  background: var(--amber);
+}
+.btn-amber:hover:not(:disabled) {
+  background: #b45309;
+}
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* ---- Auth gate (login / loading / error full-screen) ---- */
+.auth-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 32px;
+  width: 100%;
+  max-width: 380px;
+}
+.auth-card-center {
+  text-align: center;
+}
+.auth-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--primary);
+}
+.auth-title {
+  margin: 4px 0 0;
+  font-size: 20px;
+}
+.auth-subtitle {
+  margin: 6px 0 22px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.code-input {
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+.spinner {
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border: 4px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Toolbar / filters ---- */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 20px;
+}
+.toolbar .field {
+  margin-bottom: 0;
+  min-width: 220px;
+}
+
+/* ---- Period filter pills ---- */
+.period-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+/* ---- States ---- */
+.empty,
+.loading {
+  text-align: center;
+  color: var(--muted);
+  padding: 48px 20px;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+.alert {
+  background: #fde8e8;
+  color: #991b1b;
+  border: 1px solid #f5c2c2;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+.notice {
+  background: #e7f6ec;
+  color: #166534;
+  border: 1px solid #bbe6c8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+/* ---- Feedback / review boxes ---- */
+.subbox {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
+  padding-top: 14px;
+}
+.subbox h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.kv {
+  margin: 6px 0;
+}
+.kv .k {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.kv .v {
+  white-space: pre-wrap;
+}
+
+/* ---- Table ---- */
+.table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+th,
+td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+th {
+  background: var(--bg);
+  color: var(--muted);
+  font-weight: 600;
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* ---- Section label (Tasks grouping, Dashboard) ---- */
+.section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
