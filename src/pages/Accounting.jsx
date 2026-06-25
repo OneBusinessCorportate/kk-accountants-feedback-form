@@ -144,6 +144,64 @@ function MetricGrid({ t, dim, context, onCellClick }) {
   )
 }
 
+// ─── Source-aware document fetcher ────────────────────────────────────────────
+
+function nextDayIso(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().split('T')[0]
+}
+
+async function fetchSourceDocs(act, docType, params) {
+  if (!artyom) return []
+  const date = act.activity_date
+  const next = nextDayIso(date)
+
+  if (act.system_source === 'armsoft') {
+    const cid = params.armsoft_company_id
+    if (!cid) return []
+    const view = docType === 'invoice' ? 'v_armsoft_issued_invoices' : 'v_armsoft_documents'
+    const { data, error } = await artyom
+      .from(view)
+      .select('id, doc_num, doc_date, doc_type_name, curr_code, summ, part_name, doc_state_name')
+      .eq('company_id', cid)
+      .gte('doc_date', date)
+      .lt('doc_date', next)
+      .order('doc_date')
+    if (error) throw new Error(error.message)
+    return (data ?? []).map(r => ({
+      id: r.id, num: r.doc_num,
+      date: r.doc_date ? String(r.doc_date).split('T')[0] : null,
+      description: r.doc_type_name, amount: r.summ, currency: r.curr_code,
+      counterparty: r.part_name, status: r.doc_state_name,
+    }))
+  }
+
+  if (act.system_source === 'taxservice') {
+    const cid = params.tax_company_id
+    if (!cid) return []
+    if (docType === 'invoice') {
+      const { data, error } = await artyom
+        .from('v_tax_invoices_issued')
+        .select('id, serial_no, issued_at, type, total, buyer_name, approval_state')
+        .eq('company_id', cid)
+        .gte('issued_at', date)
+        .lt('issued_at', next)
+        .order('issued_at')
+      if (error) throw new Error(error.message)
+      return (data ?? []).map(r => ({
+        id: r.id, num: r.serial_no,
+        date: r.issued_at ? String(r.issued_at).split('T')[0] : null,
+        description: r.type, amount: r.total, currency: 'AMD',
+        counterparty: r.buyer_name, status: r.approval_state,
+      }))
+    }
+    return []
+  }
+
+  return []
+}
+
 // ─── Document Detail Modal ─────────────────────────────────────────────────────
 
 function DocumentDetailModal({ params, onClose }) {
@@ -219,15 +277,8 @@ function DocumentDetailModal({ params, onClose }) {
     if (actDocs[key] !== undefined) return
     setActDocsLoading(p => ({ ...p, [key]: true }))
     try {
-      const { data } = await artyom
-        .from('document_records')
-        .select('*')
-        .eq('company_name', params.company_name)
-        .eq('document_type', docType)
-        .eq('document_date', act.activity_date)
-        .eq('system_source', act.system_source)
-        .order('document_date', { ascending: false })
-      setActDocs(p => ({ ...p, [key]: data ?? [] }))
+      const rows = await fetchSourceDocs(act, docType, params)
+      setActDocs(p => ({ ...p, [key]: rows }))
     } catch { setActDocs(p => ({ ...p, [key]: [] })) }
     finally { setActDocsLoading(p => ({ ...p, [key]: false })) }
   }, [expandedAct, actDocs, params])
@@ -406,21 +457,24 @@ function DocumentDetailModal({ params, onClose }) {
                                             <tr className="text-[10px] text-slate-500 font-semibold uppercase border-b border-indigo-100">
                                               <th className="text-left pb-1 pr-4">№ документа</th>
                                               <th className="text-left pb-1 pr-4">Дата</th>
-                                              <th className="text-left pb-1 pr-4">Описание</th>
+                                              <th className="text-left pb-1 pr-4">Тип</th>
                                               <th className="text-right pb-1 pr-4">Сумма</th>
-                                              <th className="text-left pb-1 pr-4">Период</th>
-                                              <th className="text-left pb-1">Заметки</th>
+                                              <th className="text-left pb-1 pr-4">Контрагент</th>
+                                              <th className="text-left pb-1">Статус</th>
                                             </tr>
                                           </thead>
                                           <tbody className="divide-y divide-indigo-100/60">
                                             {docs.map(doc => (
                                               <tr key={doc.id} className="hover:bg-white/60">
-                                                <td className="py-1.5 pr-4 font-mono text-indigo-600 whitespace-nowrap">{doc.document_number ?? '—'}</td>
-                                                <td className="py-1.5 pr-4 text-slate-600 whitespace-nowrap">{fmtDate(doc.document_date)}</td>
-                                                <td className="py-1.5 pr-4 text-slate-700 max-w-[200px]"><span className="block truncate" title={doc.description ?? undefined}>{doc.description ?? '—'}</span></td>
-                                                <td className="py-1.5 pr-4 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">{doc.amount != null ? fmtMoney(doc.amount) : '—'}</td>
-                                                <td className="py-1.5 pr-4 text-slate-600 whitespace-nowrap">{doc.period ?? '—'}</td>
-                                                <td className="py-1.5 text-slate-500 max-w-[150px]"><span className="block truncate" title={doc.notes ?? undefined}>{doc.notes ?? '—'}</span></td>
+                                                <td className="py-1.5 pr-4 font-mono text-indigo-600 whitespace-nowrap">{doc.num ?? '—'}</td>
+                                                <td className="py-1.5 pr-4 text-slate-600 whitespace-nowrap">{fmtDate(doc.date)}</td>
+                                                <td className="py-1.5 pr-4 text-slate-700 max-w-[160px]"><span className="block truncate" title={doc.description ?? undefined}>{doc.description ?? '—'}</span></td>
+                                                <td className="py-1.5 pr-4 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
+                                                  {doc.amount != null ? fmtMoney(doc.amount) : '—'}
+                                                  {doc.currency && <span className="ml-1 text-slate-400 font-normal">{doc.currency}</span>}
+                                                </td>
+                                                <td className="py-1.5 pr-4 text-slate-600 max-w-[180px]"><span className="block truncate" title={doc.counterparty ?? undefined}>{doc.counterparty ?? '—'}</span></td>
+                                                <td className="py-1.5 text-slate-500 whitespace-nowrap">{doc.status ?? '—'}</td>
                                               </tr>
                                             ))}
                                           </tbody>
@@ -996,6 +1050,8 @@ export default function Accounting() {
                         system_source: sys,
                         date_from: dateFrom,
                         date_to: dateTo,
+                        armsoft_company_id: comp?.armsoft_company_id ?? null,
+                        tax_company_id: comp?.tax_account_id ?? null,
                       })
                       return (
                         <tr key={row.company_name} className={`hover:bg-indigo-50/30 transition-colors ${i % 2 ? 'bg-slate-50/30' : ''}`}>
