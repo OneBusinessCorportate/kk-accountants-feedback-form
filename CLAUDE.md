@@ -36,6 +36,19 @@ unassigned (supervisors only).
 `src/lib/ingestion.js` mirrors these as `mapUnansweredChat`/`mapLateChat`/`mapOverduePromise`
 for spec + tests.
 
+**Auto-resolution of stale live detections (0012).** The live `qa_*` detections are
+transient: a chat flagged «Без ответа» / «Поздний ответ» / «Невыполненное обещание»
+stops being reported once it's answered/sent. Since `kk_ingest_problems()` is an
+upsert, it used to leave those rows in the queue forever (e.g. B-3983 was flagged at
+15:18, answered ~18:00, yet kept showing as open «Без ответа» days later). After
+re-ingesting the four live detections, the function now retires any still-open AI
+problem (`unanswered`/`review`/`late`/`promise`) whose `detected_at` is within the
+120h window but that this run did NOT refresh → status `auto_resolved` (new terminal
+status; `STATUS.auto_resolved` / «Снято автоматически (получен ответ)»). It never
+touches rows an accountant/reviewer has acted on, reviewer-judged false positives
+(the verdict loop owns those), Sona/Margarita reviews, or items older than the window.
+`auto_resolved` is excluded from both queues and dashboard counts.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a

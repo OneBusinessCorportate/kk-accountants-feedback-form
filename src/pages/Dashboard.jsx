@@ -25,7 +25,11 @@ export default function Dashboard() {
     Promise.all([fetchProblems(), fetchTasks(taskFilters)])
       .then(([p, t]) => {
         if (!active) return
-        setProblems(keepOwnProblems(p, access).filter((x) => x.verdict !== 'not_problematic'))
+        setProblems(
+          keepOwnProblems(p, access).filter(
+            (x) => x.verdict !== 'not_problematic' && x.status !== STATUS.auto_resolved,
+          ),
+        )
         setTasks(t)
       })
       .catch((e) => active && setError(e))
