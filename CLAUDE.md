@@ -49,6 +49,25 @@ touches rows an accountant/reviewer has acted on, reviewer-judged false positive
 (the verdict loop owns those), Sona/Margarita reviews, or items older than the window.
 `auto_resolved` is excluded from both queues and dashboard counts.
 
+**Message-based «Без ответа» → «Поздний ответ» reclassification (0014).** A chat
+flagged «Без ответа» that is later answered LATE must become «Поздний ответ», not
+silently auto-resolve. The old reclassification (0010) depended on a live `late:`
+RPC row existing, but `qa_answered_late_chats` only looks back 24h and skips
+"active back-and-forth" follow-ups, so that counterpart was usually never created
+and the row was retired instead — losing the late signal (measured: 42 late answers
+swallowed). The reclassification is now driven from the **messages**:
+`kk_first_substantive_staff_reply_after(chat_id, ts)` returns the earliest real
+(substantive, non-promise) reply from a recognised employee after `ts`, using the
+same staff-recognition rules as `qa_unanswered_chats` (incl. the 0013 inactive-employee
+fix). `kk_ingest_problems()` relabels an open `unanswered:` row to «Поздний ответ»
+whenever its flagged question (`detected_at`) got such a reply MORE than 2 business
+hours later — runs BEFORE the auto-resolve step (so late answers are kept, not
+retired) and re-stamps already-late rows each run to keep them alive. The `late:`
+RPC ingestion is kept but de-duplicated (skips a chat that already has an open
+`unanswered:` row). A one-time backfill in 0014 resurrects late answers already lost
+to `auto_resolved`. Display is unchanged — the Dashboard already counts «Поздний
+ответ» by title and excludes `auto_resolved`.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a
