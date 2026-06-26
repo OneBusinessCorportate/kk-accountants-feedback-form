@@ -8,6 +8,11 @@ export const STATUS = {
   fixed: 'fixed',
   explained_accepted: 'explained_accepted',
   returned_to_accountant: 'returned_to_accountant',
+  // Terminal status set by kk_ingest_problems() when a live AI detection
+  // (no answer / late / promise) is no longer reported by the QA layer — i.e.
+  // the chat was answered after we flagged it. Keeps the row for history while
+  // dropping it from the accountant/review queues and dashboard counts.
+  auto_resolved: 'auto_resolved',
 }
 
 export const STATUS_LABELS = {
@@ -18,6 +23,7 @@ export const STATUS_LABELS = {
   fixed: 'Исправлено',
   explained_accepted: 'Объяснено / принято',
   returned_to_accountant: 'Возвращена бухгалтеру',
+  auto_resolved: 'Снято автоматически (получен ответ)',
 }
 
 // Statuses an accountant is expected to act on.

@@ -32,6 +32,11 @@ describe('constants integrity', () => {
     }
   })
 
+  it('auto_resolved is a terminal status (in neither queue)', () => {
+    expect(ACCOUNTANT_ACTIONABLE).not.toContain(STATUS.auto_resolved)
+    expect(REVIEW_QUEUE).not.toContain(STATUS.auto_resolved)
+  })
+
   it('covers the three priority levels', () => {
     expect(Object.keys(PRIORITY_LABELS).sort()).toEqual(['1', '2', '3'])
   })
