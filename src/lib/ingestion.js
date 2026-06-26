@@ -219,6 +219,24 @@ export const QA_PROBLEM_TITLES = {
   promise: 'Невыполненное обещание (не отправлено)',
 }
 
+// Reverse of QA_PROBLEM_TITLES: classify a STORED problem back to its QA kind
+// ('unanswered' | 'late' | 'promise' | 'review' | null). The problem_id PREFIX is
+// only the kind at creation time — the message-based reclassification (migration
+// 0014) relabels an `unanswered:` row to «Поздний ответ» without (and unable to)
+// change its id. So the authoritative current kind is the problem_title; we read
+// that first and fall back to the id prefix only when the title is unrecognised.
+// Order matters: the review title also contains «без ответа», so it is matched
+// before the plain unanswered title.
+export function qaKind(problem = {}) {
+  const title = (problem.problem_title || '').toString().toLowerCase()
+  if (title.includes('поздний ответ')) return 'late'
+  if (title.includes('обещание')) return 'promise'
+  if (title.includes('требует проверки')) return 'review'
+  if (title.includes('без ответа')) return 'unanswered'
+  const prefix = (problem.problem_id || '').toString().split(':')[0]
+  return ['unanswered', 'late', 'promise', 'review'].includes(prefix) ? prefix : null
+}
+
 // An unanswered row is UNCERTAIN when the QA layer couldn't confirm the miss
 // (importer likely dropped the staff reply, or staff was recently active). Such
 // rows must not be pinned on an accountant who may well have answered.

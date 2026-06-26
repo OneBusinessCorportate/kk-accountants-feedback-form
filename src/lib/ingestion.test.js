@@ -24,6 +24,7 @@ import {
   isUnansweredUncertain,
   extractMentions,
   mapUncertainUnanswered,
+  qaKind,
 } from './ingestion'
 import { SOURCES, STATUS } from './constants'
 
@@ -302,6 +303,29 @@ describe('unanswered targeting (do not blame whoever answered)', () => {
     )
     expect(olya.problem_id).toBe('unanswered:-5175454837:2b22a577-7683-4f22-9834-c957312da4bc')
     expect(olya.accountant_name).toBe('Olya Accounting')
+  })
+})
+
+describe('qaKind (current classification from title, not stale id prefix)', () => {
+  it('reads the kind from the problem_title', () => {
+    expect(qaKind({ problem_title: QA_PROBLEM_TITLES.unanswered })).toBe('unanswered')
+    expect(qaKind({ problem_title: QA_PROBLEM_TITLES.late })).toBe('late')
+    expect(qaKind({ problem_title: QA_PROBLEM_TITLES.promise })).toBe('promise')
+    // The review title also contains «без ответа» — must resolve to review, not unanswered.
+    expect(qaKind({ problem_title: QA_PROBLEM_TITLES.review })).toBe('review')
+  })
+
+  it('a reclassified late answer (unanswered: id, «Поздний ответ» title) counts as late', () => {
+    expect(
+      qaKind({ problem_id: 'unanswered:-5258193111:emp', problem_title: 'Поздний ответ клиенту' }),
+    ).toBe('late')
+  })
+
+  it('falls back to the problem_id prefix when the title is unrecognised', () => {
+    expect(qaKind({ problem_id: 'late:-55', problem_title: '' })).toBe('late')
+    expect(qaKind({ problem_id: 'unanswered:-55:emp' })).toBe('unanswered')
+    expect(qaKind({ problem_id: 'sona:42' })).toBeNull()
+    expect(qaKind({})).toBeNull()
   })
 })
 

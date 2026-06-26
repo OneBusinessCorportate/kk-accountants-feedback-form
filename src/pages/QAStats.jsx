@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchProblems, rateProblem } from '../lib/api'
 import { SOURCE_LABELS, VERDICT_LABELS } from '../lib/constants'
+import { qaKind } from '../lib/ingestion'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 
@@ -11,9 +12,11 @@ const AI_SUBTYPE_LABELS = {
   review: 'Без ответа (неопред.)',
 }
 
-function aiSubtype(problemId) {
-  const prefix = problemId.split(':')[0]
-  return AI_SUBTYPE_LABELS[prefix] || null
+// Subtype label from the CURRENT classification (problem_title-driven), so a row
+// reclassified «Без ответа» → «Поздний ответ» shows the right chip even though
+// its problem_id still starts with `unanswered:`.
+function aiSubtype(problem) {
+  return AI_SUBTYPE_LABELS[qaKind(problem)] || null
 }
 
 const FILTER_KEYS = ['all', 'unrated', 'problematic', 'not_problematic']
@@ -52,7 +55,7 @@ function ProblemCard({ problem, onChanged }) {
 
   const v = problem.verdict
   const src = SOURCE_LABELS[problem.source] || problem.source
-  const sub = problem.source === 'ai' ? aiSubtype(problem.problem_id) : null
+  const sub = problem.source === 'ai' ? aiSubtype(problem) : null
 
   return (
     <div className="card">

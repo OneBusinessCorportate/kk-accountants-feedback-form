@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient'
 import { STATUS } from './constants'
+import { qaKind } from './ingestion'
 
 // Small helper so callers get a clean error message instead of a raw object.
 function unwrap({ data, error }) {
@@ -188,7 +189,7 @@ export async function fetchAccuracyStats() {
   const rows = unwrap(
     await supabase
       .from('kk_problems')
-      .select('problem_id, source, verdict')
+      .select('problem_id, source, verdict, problem_title')
       .not('verdict', 'is', null),
   )
 
@@ -212,10 +213,13 @@ export async function fetchAccuracyStats() {
     .map(([source, items]) => ({ source, ...agg(items) }))
     .sort((a, b) => b.total - a.total)
 
+  // Group by the CURRENT kind (problem_title-driven via qaKind), not the
+  // problem_id prefix — a reclassified «Поздний ответ» keeps its `unanswered:` id
+  // but must count under `late`, matching what the QA page shows.
   const aiRows = rows.filter((r) => r.source === 'ai')
   const subtypeMap = {}
   for (const r of aiRows) {
-    const prefix = r.problem_id.split(':')[0]
+    const prefix = qaKind(r) || 'other'
     if (!subtypeMap[prefix]) subtypeMap[prefix] = []
     subtypeMap[prefix].push(r)
   }
