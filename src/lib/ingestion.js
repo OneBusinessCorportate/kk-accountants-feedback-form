@@ -43,6 +43,7 @@ export function normalizeAccountant(name) {
 // (e.g. "հանձնված" = "handed over", "Էրիկ", "-") are deliberately absent so
 // they resolve to null instead of a fake accountant.
 const ACCOUNTANT_ALIAS_ENTRIES = [
+  ['Անահիտ', '5ca23678-3189-46ca-85be-a4257cb54734', 'Anahit Accounting'],
   ['Գայանե', 'aac8ac8c-95d8-4327-b89e-8d0ff991de82', 'Gayane Accounting'],
   ['Թագուհի', 'e7d79ff0-1fc6-4e04-ac83-bc3b56a5e7d8', 'Taguhi Accounting'],
   ['Ստելլա', '6e60a1f3-2869-4e02-ba38-d00e6e2edb83', 'Stella Accounting'],
