@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment } from '../lib/api'
+import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment } from '../lib/api'
+import { AttachmentList, AttachmentPicker } from '../components/Attachments'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
 import {
   formatDate,
@@ -215,6 +216,8 @@ function ProblemFeedbackCard({ problem, onSaved }) {
   const { access, isSupervisor } = useAuth()
   const [situation, setSituation] = useState('')
   const [solution, setSolution] = useState('')
+  const [files, setFiles] = useState([])
+  const [attachRefresh, setAttachRefresh] = useState(0)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -235,6 +238,26 @@ function ProblemFeedbackCard({ problem, onSaved }) {
         situationComment: situation.trim(),
         solutionComment: solution.trim(),
       })
+      // Attachments are optional; the feedback above is already saved, so an
+      // upload failure is reported without losing the submitted answer.
+      const failed = []
+      for (const file of files) {
+        try {
+          await uploadFeedbackAttachment({
+            problemId: problem.problem_id,
+            file,
+            uploadedBy: access?.full_name || problem.accountant_name || null,
+          })
+        } catch {
+          failed.push(file.name)
+        }
+      }
+      setFiles([])
+      setAttachRefresh((n) => n + 1)
+      if (failed.length) {
+        setError(new Error(`Ответ сохранён, но не удалось загрузить: ${failed.join(', ')}`))
+        return
+      }
       onSaved()
     } catch (e) {
       setError(e)
@@ -326,6 +349,9 @@ function ProblemFeedbackCard({ problem, onSaved }) {
           onChange={(e) => setSolution(e.target.value)}
         />
       </div>
+
+      <AttachmentList problemId={problem.problem_id} refreshKey={attachRefresh} />
+      <AttachmentPicker files={files} onFiles={setFiles} disabled={saving} />
 
       <div className="btn-row">
         <button className="btn" disabled={!canSave} onClick={handleSave}>

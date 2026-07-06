@@ -294,3 +294,59 @@ export async function reopenTask(taskId) {
 export async function deleteTask(taskId) {
   return unwrap(await supabase.from('kk_tasks').delete().eq('id', taskId))
 }
+
+// ---- Feedback attachments ---------------------------------------------------
+//
+// Optional files (documents/screenshots of the work done) an accountant can
+// attach with feedback. Files go to the public `kk-attachments` bucket; one
+// metadata row per file in kk_problem_attachments. Sona's platform reads the
+// same table to show the files next to the accountant's answer.
+
+// Storage keys must be ASCII-safe; keep the original name in file_name and
+// build a sanitized unique path here. Exported for tests.
+export function attachmentStoragePath(problemId, fileName, unique = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`) {
+  const safeId = String(problemId).replace(/[^a-zA-Z0-9_-]+/g, '_')
+  const dot = fileName.lastIndexOf('.')
+  const base =
+    (dot > 0 ? fileName.slice(0, dot) : fileName)
+      .replace(/[^a-zA-Z0-9_-]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || 'file'
+  const ext = dot > 0 ? fileName.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 10) : ''
+  return `${safeId}/${unique}-${base}${ext ? '.' + ext : ''}`
+}
+
+export async function uploadFeedbackAttachment({ problemId, file, uploadedBy }) {
+  const path = attachmentStoragePath(problemId, file.name)
+  const { error: uploadError } = await supabase.storage
+    .from('kk-attachments')
+    .upload(path, file, { contentType: file.type || undefined })
+  if (uploadError) throw new Error(uploadError.message)
+
+  const { data: pub } = supabase.storage.from('kk-attachments').getPublicUrl(path)
+  return unwrap(
+    await supabase
+      .from('kk_problem_attachments')
+      .insert({
+        problem_id: problemId,
+        file_name: file.name,
+        storage_path: path,
+        public_url: pub.publicUrl,
+        mime_type: file.type || null,
+        size_bytes: file.size ?? null,
+        uploaded_by: uploadedBy || null,
+      })
+      .select()
+      .single(),
+  )
+}
+
+export async function fetchAttachments(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_problem_attachments')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: true }),
+  )
+}

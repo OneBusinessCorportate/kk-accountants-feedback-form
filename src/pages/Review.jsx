@@ -12,6 +12,7 @@ import { REVIEW_QUEUE, STATUS, STATUS_LABELS, VERDICT_LABELS } from '../lib/cons
 import { sortQueue } from '../lib/presentation'
 import { useAuth } from '../lib/AuthContext'
 import StatusBadge from '../components/StatusBadge'
+import { AttachmentList } from '../components/Attachments'
 import ProblemMeta from '../components/ProblemMeta'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 
@@ -274,6 +275,7 @@ function ReviewCard({ problem, onChanged }) {
             </div>
           </>
         )}
+        <AttachmentList problemId={problem.problem_id} />
       </div>
 
       {actions.length > 0 && (

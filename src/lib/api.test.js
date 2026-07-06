@@ -113,3 +113,20 @@ describe('submitReviewAction', () => {
     expect(insert.payload.review_comment).toBeNull()
   })
 })
+
+describe('attachmentStoragePath', () => {
+  it('sanitizes the problem id and file name into an ASCII-safe storage key', async () => {
+    const { attachmentStoragePath } = await import('./api')
+    const path = attachmentStoragePath('sona:42', 'скриншот работы (1).PNG', 'u1')
+    expect(path).toBe('sona_42/u1-1.png')
+
+    const latin = attachmentStoragePath('sona:42', 'report v2.pdf', 'u1')
+    expect(latin).toBe('sona_42/u1-report_v2.pdf')
+  })
+
+  it('handles names without extension and never produces an empty base', async () => {
+    const { attachmentStoragePath } = await import('./api')
+    expect(attachmentStoragePath('KK-2026-1', 'notes', 'u2')).toBe('KK-2026-1/u2-notes')
+    expect(attachmentStoragePath('KK-2026-1', '...', 'u2')).toBe('KK-2026-1/u2-file')
+  })
+})
