@@ -83,7 +83,7 @@ describe('mapSonaTicket', () => {
     expect(p.client_name).toBe('PRIME DIGITAL LLC')
     expect(p.chat_link).toBe('https://web.telegram.org/a/#-5138517763')
     // Source name "Օլյա" is resolved to the real employee.
-    expect(p.accountant_name).toBe('Olya Accounting')
+    expect(p.accountant_name).toBe('Olya Hakobyan')
     expect(p.accountant_id).toBe('2b22a577-7683-4f22-9834-c957312da4bc')
     expect(p.priority).toBe(1)
     expect(p.problem_title).toBe('Не сдан отчёт НДС')
@@ -99,7 +99,7 @@ describe('mapSonaTicket', () => {
       title: '',
       type: '',
     })
-    expect(p.accountant_name).toBe('Naira Accounting')
+    expect(p.accountant_name).toBe('Naira Zalinian')
     expect(p.problem_title).toBe('Проблема по проверке качества')
   })
 })
@@ -125,7 +125,7 @@ describe('mapMargaritaViolation', () => {
     expect(p.source).toBe(MARGARITA_SOURCE)
     expect(p.contract_id).toBe('B-4219')
     expect(p.client_name).toBe('MARINA BIRYUKOVA')
-    expect(p.accountant_name).toBe('Naira Accounting')
+    expect(p.accountant_name).toBe('Naira Zalinian')
     expect(p.accountant_id).toBe('b2799800-e8bc-4b28-8ce6-db73eb548f3b')
     expect(p.priority).toBe(1)
     expect(p.problem_title).toBe('Не ответил клиенту вовремя')
@@ -142,23 +142,23 @@ describe('mapMargaritaViolation', () => {
 })
 
 describe('resolveAccountant (source name → real employee)', () => {
-  it('maps a bare Armenian first name to the "{Name} Accounting" employee', () => {
+  it('maps a bare Armenian first name to the matching employee', () => {
     expect(resolveAccountant('Օլյա')).toEqual({
       accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc',
-      accountant_name: 'Olya Accounting',
+      accountant_name: 'Olya Hakobyan',
     })
   })
 
   it('disambiguates an initialed name to the surname (Նաիրա Մ․ → Mkhitaryan)', () => {
     const naira = resolveAccountant('Նաիրա')
     const nairaM = resolveAccountant('Նաիրա Մ․')
-    expect(naira.accountant_name).toBe('Naira Accounting')
+    expect(naira.accountant_name).toBe('Naira Zalinian')
     expect(nairaM.accountant_name).toBe('Naira Mkhitaryan')
     expect(naira.accountant_id).not.toBe(nairaM.accountant_id)
   })
 
   it('is whitespace/case tolerant', () => {
-    expect(resolveAccountant('  Դավիթ  ').accountant_name).toBe('Davit Accounting')
+    expect(resolveAccountant('  Դավիթ  ').accountant_name).toBe('Davit Aloyan')
   })
 
   it('resolves an unknown / non-person label to null on both fields', () => {
@@ -204,12 +204,12 @@ describe('live QA detections (unanswered / late / promise)', () => {
         severity: 'critical',
         flag_reason: 'no_staff_reply_after_client_question',
       },
-      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Accounting' },
+      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Hakobyan' },
     )
     expect(p.problem_id).toBe('unanswered:-5175454837:2b22a577-7683-4f22-9834-c957312da4bc')
     expect(p.source).toBe(QA_SOURCE)
     expect(p.problem_title).toBe(QA_PROBLEM_TITLES.unanswered)
-    expect(p.accountant_name).toBe('Olya Accounting')
+    expect(p.accountant_name).toBe('Olya Hakobyan')
     expect(p.priority).toBe(1)
     expect(p.chat_link).toBe('https://web.telegram.org/a/#-5175454837')
     expect(p.status).toBe(INGEST_STATUS)
@@ -232,12 +232,12 @@ describe('live QA detections (unanswered / late / promise)', () => {
         request_time: '2026-06-20T11:52:49+00:00',
         flag_reason: 'answered_but_after_sla',
       },
-      { accountant_id: '6e60a1f3-2869-4e02-ba38-d00e6e2edb83', accountant_name: 'Stella Accounting' },
+      { accountant_id: '6e60a1f3-2869-4e02-ba38-d00e6e2edb83', accountant_name: 'Stella Patatanyan' },
     )
     expect(p.problem_id).toBe('late:-5279829070')
     expect(p.problem_title).toBe(QA_PROBLEM_TITLES.late)
     expect(p.client_name).toBe('Ani')
-    expect(p.accountant_name).toBe('Stella Accounting')
+    expect(p.accountant_name).toBe('Stella Patatanyan')
     expect(p.detected_at).toBe('2026-06-20T11:52:49+00:00')
   })
 
@@ -299,10 +299,10 @@ describe('unanswered targeting (do not blame whoever answered)', () => {
     // mapper keys the problem by that employee so others (e.g. Inga) get nothing.
     const olya = mapUnansweredChat(
       { chat_id: -5175454837, chat_name: 'Bookkeeping B-4479', severity: 'critical' },
-      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Accounting' },
+      { accountant_id: '2b22a577-7683-4f22-9834-c957312da4bc', accountant_name: 'Olya Hakobyan' },
     )
     expect(olya.problem_id).toBe('unanswered:-5175454837:2b22a577-7683-4f22-9834-c957312da4bc')
-    expect(olya.accountant_name).toBe('Olya Accounting')
+    expect(olya.accountant_name).toBe('Olya Hakobyan')
   })
 })
 
