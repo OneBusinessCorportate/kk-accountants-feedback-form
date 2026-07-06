@@ -95,3 +95,11 @@ export function sortQueue(problems) {
     return da - db
   })
 }
+
+// Comment authors coming from the QA platform must stay anonymous for
+// accountants: mask anything that isn't a plain employee name (emails,
+// QA-platform identities). kk-side replies keep the supervisor's name.
+export function displayAuthor(author) {
+  if (!author || /sona|@/i.test(author)) return 'Проверяющий'
+  return author
+}

@@ -143,3 +143,15 @@ describe('sortQueue', () => {
     expect(sortQueue(input).map((p) => p.problem_id)).toEqual(['y', 'x'])
   })
 })
+
+describe('displayAuthor', () => {
+  it('masks QA-platform identities and emails, keeps employee names', async () => {
+    const { displayAuthor } = await import('./presentation')
+    expect(displayAuthor('Sona')).toBe('Проверяющий')
+    expect(displayAuthor('sona@onebusiness.am')).toBe('Проверяющий')
+    expect(displayAuthor('someone@x.com')).toBe('Проверяющий')
+    expect(displayAuthor('')).toBe('Проверяющий')
+    expect(displayAuthor(null)).toBe('Проверяющий')
+    expect(displayAuthor('Naira Mkhitaryan')).toBe('Naira Mkhitaryan')
+  })
+})

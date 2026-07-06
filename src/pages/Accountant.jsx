@@ -3,6 +3,7 @@ import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchSonaCom
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
 import {
+  displayAuthor,
   formatDate,
   isOverdue,
   problemContext,
@@ -177,14 +178,14 @@ function SonaComments({ problem, isSupervisor, authorName }) {
 
   return (
     <div className="subbox" style={{ marginBottom: 12 }}>
-      <h4 style={{ marginTop: 0 }}>Комментарии Соны</h4>
+      <h4 style={{ marginTop: 0 }}>Комментарии проверяющего</h4>
       {comments.length === 0 && (
         <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев пока нет.</p>
       )}
       {comments.map((c) => (
         <div key={c.id} style={{ marginBottom: 8 }}>
           <span className="meta" style={{ fontSize: '0.8em' }}>
-            <b>{c.author}</b> · {formatDate(c.created_at)}
+            <b>{displayAuthor(c.author)}</b> · {formatDate(c.created_at)}
           </span>
           <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{c.body}</p>
         </div>
@@ -193,7 +194,7 @@ function SonaComments({ problem, isSupervisor, authorName }) {
         <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
           <textarea
             rows={2}
-            placeholder="Ответить Соне…"
+            placeholder="Ответить…"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />

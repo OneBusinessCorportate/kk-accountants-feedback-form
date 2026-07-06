@@ -147,7 +147,7 @@ export function mapSonaTicket(row = {}) {
     accountant_name,
     accountant_id,
     priority: sonaPriority(row),
-    problem_title: firstText(row.title, row.type) || 'Проблема по проверке (Сона)',
+    problem_title: firstText(row.title, row.type) || 'Проблема по проверке качества',
     problem_description: firstText(row.description, row.comment),
     ai_comment: firstText(row.comment),
     detected_at: row.created_at ?? null,

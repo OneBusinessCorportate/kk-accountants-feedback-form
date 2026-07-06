@@ -100,7 +100,7 @@ describe('mapSonaTicket', () => {
       type: '',
     })
     expect(p.accountant_name).toBe('Naira Accounting')
-    expect(p.problem_title).toBe('Проблема по проверке (Сона)')
+    expect(p.problem_title).toBe('Проблема по проверке качества')
   })
 })
 

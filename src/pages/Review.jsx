@@ -9,7 +9,7 @@ import {
   addSonaComment,
 } from '../lib/api'
 import { REVIEW_QUEUE, STATUS, STATUS_LABELS, VERDICT_LABELS } from '../lib/constants'
-import { sortQueue } from '../lib/presentation'
+import { displayAuthor, sortQueue } from '../lib/presentation'
 import { useAuth } from '../lib/AuthContext'
 import StatusBadge from '../components/StatusBadge'
 import { AttachmentList } from '../components/Attachments'
@@ -219,14 +219,14 @@ function ReviewCard({ problem, onChanged }) {
 
       {problem.source === 'sona_review' && (
         <div className="subbox">
-          <h4>Комментарии Соны</h4>
+          <h4>Комментарии проверяющего</h4>
           {sonaComments.length === 0 && (
-            <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев от Соны пока нет.</p>
+            <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев пока нет.</p>
           )}
           {sonaComments.map((c) => (
             <div key={c.id} style={{ marginBottom: 8 }}>
               <span className="meta" style={{ fontSize: '0.8em' }}>
-                <b>{c.author}</b> · {new Date(c.created_at).toLocaleString('ru-RU')}
+                <b>{displayAuthor(c.author)}</b> · {new Date(c.created_at).toLocaleString('ru-RU')}
               </span>
               <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{c.body}</p>
             </div>
@@ -234,7 +234,7 @@ function ReviewCard({ problem, onChanged }) {
           <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
             <textarea
               rows={2}
-              placeholder="Ответить Соне…"
+              placeholder="Ответить…"
               value={sonaDraft}
               onChange={(e) => setSonaDraft(e.target.value)}
             />
