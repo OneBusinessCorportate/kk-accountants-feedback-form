@@ -244,7 +244,7 @@ function ReviewCard({ problem, onChanged }) {
                 disabled={!sonaDraft.trim() || sonaPosting}
                 onClick={postSonaComment}
               >
-                {sonaPosting ? 'Отправка…' : 'Отправить Соне'}
+                {sonaPosting ? 'Отправка…' : 'Отправить'}
               </button>
             </div>
           </div>

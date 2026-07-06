@@ -151,7 +151,9 @@ export default function Accountant() {
   )
 }
 
-function SonaComments({ problem, isSupervisor, authorName }) {
+// Shared thread with the QA platform: accountants and supervisors can both
+// write here; everything posted is visible on the checker's side too.
+function SonaComments({ problem, authorName }) {
   const [comments, setComments] = useState([])
   const [draft, setDraft] = useState('')
   const [posting, setPosting] = useState(false)
@@ -165,7 +167,7 @@ function SonaComments({ problem, isSupervisor, authorName }) {
     if (!body) return
     setPosting(true)
     try {
-      await addSonaComment(problem.problem_id, body, authorName || 'Проверяющий')
+      await addSonaComment(problem.problem_id, body, authorName || 'Бухгалтер')
       setDraft('')
       const updated = await fetchSonaComments(problem.problem_id)
       setComments(updated)
@@ -174,13 +176,13 @@ function SonaComments({ problem, isSupervisor, authorName }) {
     }
   }
 
-  if (comments.length === 0 && !isSupervisor) return null
-
   return (
     <div className="subbox" style={{ marginBottom: 12 }}>
-      <h4 style={{ marginTop: 0 }}>Комментарии проверяющего</h4>
+      <h4 style={{ marginTop: 0 }}>Комментарии по проверке</h4>
       {comments.length === 0 && (
-        <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев пока нет.</p>
+        <p className="hint" style={{ margin: '4px 0 8px' }}>
+          Комментариев пока нет. Можно задать вопрос или уточнить детали — проверяющий увидит.
+        </p>
       )}
       {comments.map((c) => (
         <div key={c.id} style={{ marginBottom: 8 }}>
@@ -190,11 +192,10 @@ function SonaComments({ problem, isSupervisor, authorName }) {
           <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{c.body}</p>
         </div>
       ))}
-      {isSupervisor && (
-        <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+      <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
           <textarea
             rows={2}
-            placeholder="Ответить…"
+            placeholder="Написать комментарий…"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
           />
@@ -208,7 +209,6 @@ function SonaComments({ problem, isSupervisor, authorName }) {
             </button>
           </div>
         </div>
-      )}
     </div>
   )
 }
@@ -320,11 +320,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       {context && <div className="description">{context}</div>}
 
       {problem.source === 'sona_review' && (
-        <SonaComments
-          problem={problem}
-          isSupervisor={isSupervisor}
-          authorName={access?.full_name}
-        />
+        <SonaComments problem={problem} authorName={access?.full_name} />
       )}
 
       <ErrorMessage error={error} />
