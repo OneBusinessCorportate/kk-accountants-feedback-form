@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchAccountants, submitAccountantFeedback } from '../lib/api'
+import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment } from '../lib/api'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
 import {
   formatDate,
@@ -149,7 +149,70 @@ export default function Accountant() {
   )
 }
 
+function SonaComments({ problem, isSupervisor, authorName }) {
+  const [comments, setComments] = useState([])
+  const [draft, setDraft] = useState('')
+  const [posting, setPosting] = useState(false)
+
+  useEffect(() => {
+    fetchSonaComments(problem.problem_id).then(setComments).catch(() => {})
+  }, [problem.problem_id])
+
+  async function handlePost() {
+    const body = draft.trim()
+    if (!body) return
+    setPosting(true)
+    try {
+      await addSonaComment(problem.problem_id, body, authorName || 'Проверяющий')
+      setDraft('')
+      const updated = await fetchSonaComments(problem.problem_id)
+      setComments(updated)
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  if (comments.length === 0 && !isSupervisor) return null
+
+  return (
+    <div className="subbox" style={{ marginBottom: 12 }}>
+      <h4 style={{ marginTop: 0 }}>Комментарии Соны</h4>
+      {comments.length === 0 && (
+        <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев пока нет.</p>
+      )}
+      {comments.map((c) => (
+        <div key={c.id} style={{ marginBottom: 8 }}>
+          <span className="meta" style={{ fontSize: '0.8em' }}>
+            <b>{c.author}</b> · {formatDate(c.created_at)}
+          </span>
+          <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{c.body}</p>
+        </div>
+      ))}
+      {isSupervisor && (
+        <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+          <textarea
+            rows={2}
+            placeholder="Ответить Соне…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+          />
+          <div className="btn-row" style={{ marginTop: 6 }}>
+            <button
+              className="btn btn-sm"
+              disabled={!draft.trim() || posting}
+              onClick={handlePost}
+            >
+              {posting ? 'Отправка…' : 'Отправить'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ProblemFeedbackCard({ problem, onSaved }) {
+  const { access, isSupervisor } = useAuth()
   const [situation, setSituation] = useState('')
   const [solution, setSolution] = useState('')
   const [saving, setSaving] = useState(false)
@@ -231,6 +294,14 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       </div>
 
       {context && <div className="description">{context}</div>}
+
+      {problem.source === 'sona_review' && (
+        <SonaComments
+          problem={problem}
+          isSupervisor={isSupervisor}
+          authorName={access?.full_name}
+        />
+      )}
 
       <ErrorMessage error={error} />
 

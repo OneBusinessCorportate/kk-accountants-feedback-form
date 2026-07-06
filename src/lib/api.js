@@ -230,6 +230,30 @@ export async function fetchAccuracyStats() {
   return { overall, perSource, aiSubtypes }
 }
 
+// ---- Sona cross-platform comments -----------------------------------------
+
+// Comments Sona posts on a kk_problem after reading accountant feedback.
+// Visible on both platforms; supervisors can reply from the kk side.
+export async function fetchSonaComments(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_sona_comments')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: true }),
+  )
+}
+
+export async function addSonaComment(problemId, body, author) {
+  return unwrap(
+    await supabase
+      .from('kk_sona_comments')
+      .insert({ problem_id: problemId, body, author })
+      .select()
+      .single(),
+  )
+}
+
 // ---- Tasks -----------------------------------------------------------------
 
 export async function fetchTasks(filters = {}) {

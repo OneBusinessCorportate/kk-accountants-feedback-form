@@ -5,6 +5,8 @@ import {
   fetchReviewActions,
   submitReviewAction,
   rateProblem,
+  fetchSonaComments,
+  addSonaComment,
 } from '../lib/api'
 import { REVIEW_QUEUE, STATUS, STATUS_LABELS, VERDICT_LABELS } from '../lib/constants'
 import { sortQueue } from '../lib/presentation'
@@ -102,6 +104,9 @@ function ReviewCard({ problem, onChanged }) {
   const { access } = useAuth()
   const [feedback, setFeedback] = useState([])
   const [actions, setActions] = useState([])
+  const [sonaComments, setSonaComments] = useState([])
+  const [sonaDraft, setSonaDraft] = useState('')
+  const [sonaPosting, setSonaPosting] = useState(false)
   const [reviewComment, setReviewComment] = useState('')
   const [reviewerName, setReviewerName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -134,17 +139,38 @@ function ReviewCard({ problem, onChanged }) {
   // history updates even while the card stays visible (resolved view).
   useEffect(() => {
     let ignore = false
-    Promise.all([fetchFeedback(problem.problem_id), fetchReviewActions(problem.problem_id)])
-      .then(([fb, ac]) => {
+    const requests = [fetchFeedback(problem.problem_id), fetchReviewActions(problem.problem_id)]
+    if (problem.source === 'sona_review') {
+      requests.push(fetchSonaComments(problem.problem_id))
+    }
+    Promise.all(requests)
+      .then(([fb, ac, sc = []]) => {
         if (ignore) return
         setFeedback(fb)
         setActions(ac)
+        setSonaComments(sc)
       })
       .catch((e) => !ignore && setError(e))
     return () => {
       ignore = true
     }
-  }, [problem.problem_id, problem.status])
+  }, [problem.problem_id, problem.status, problem.source])
+
+  async function postSonaComment() {
+    const body = sonaDraft.trim()
+    if (!body) return
+    setSonaPosting(true)
+    try {
+      await addSonaComment(problem.problem_id, body, access?.full_name || 'Проверяющий')
+      setSonaDraft('')
+      const updated = await fetchSonaComments(problem.problem_id)
+      setSonaComments(updated)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setSonaPosting(false)
+    }
+  }
 
   async function act(action) {
     if (action === STATUS.returned_to_accountant && reviewComment.trim() === '') {
@@ -189,6 +215,40 @@ function ReviewCard({ problem, onChanged }) {
       </div>
 
       <ProblemMeta problem={problem} />
+
+      {problem.source === 'sona_review' && (
+        <div className="subbox">
+          <h4>Комментарии Соны</h4>
+          {sonaComments.length === 0 && (
+            <p className="hint" style={{ margin: '4px 0 8px' }}>Комментариев от Соны пока нет.</p>
+          )}
+          {sonaComments.map((c) => (
+            <div key={c.id} style={{ marginBottom: 8 }}>
+              <span className="meta" style={{ fontSize: '0.8em' }}>
+                <b>{c.author}</b> · {new Date(c.created_at).toLocaleString('ru-RU')}
+              </span>
+              <p style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap' }}>{c.body}</p>
+            </div>
+          ))}
+          <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+            <textarea
+              rows={2}
+              placeholder="Ответить Соне…"
+              value={sonaDraft}
+              onChange={(e) => setSonaDraft(e.target.value)}
+            />
+            <div className="btn-row" style={{ marginTop: 6 }}>
+              <button
+                className="btn btn-sm"
+                disabled={!sonaDraft.trim() || sonaPosting}
+                onClick={postSonaComment}
+              >
+                {sonaPosting ? 'Отправка…' : 'Отправить Соне'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="subbox">
         <h4>Комментарий бухгалтера</h4>
