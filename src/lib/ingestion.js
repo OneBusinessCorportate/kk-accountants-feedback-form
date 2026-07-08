@@ -284,16 +284,19 @@ export const UPSERT_REFRESH_COLUMNS = [
   'detected_at',
 ]
 
-// ---- Live QA detections (qa_* RPCs) ----------------------------------------
-// Besides the manual Sona/Margarita reviews above, kk_ingest_problems() also
-// ingests the live detections that power the dashboards, so «без ответа»,
-// «поздний ответ» and broken promises all appear in the feedback form:
+// ---- Live QA detections (qa_* RPCs) — INGESTION DISABLED (0022) -------------
+// kk_ingest_problems() used to also ingest the live detections that power the
+// QA dashboards («без ответа» / «поздний ответ» / broken promises, migrations
+// 0004-0015). By owner decision (migration 0022) the feedback form now uses
+// ONLY the Margarita and Sona review results — no new 'ai' problems are
+// created, and the open ones were retired to 'auto_resolved'.
+// The mappers below are KEPT as the spec of how the HISTORICAL 'ai' rows were
+// built, and because qaKind() still classifies those rows on the QA-accuracy
+// and Review screens:
 //   qa_unanswered_chats     → 'Без ответа клиенту'
 //   qa_answered_late_chats  → 'Поздний ответ клиенту'
 //   qa_overdue_promises     → 'Невыполненное обещание (не отправлено)'
-// These come from RPCs (no source table), so the production path is SQL
-// (migration 0004). The mappers below mirror that SQL for spec + regression
-// tests. The accountant is resolved in SQL (kk_resolve_employee, by chat-named
+// The accountant is resolved in SQL (kk_resolve_employee, by chat-named
 // accountant → employee); here it is passed in as { accountant_id,
 // accountant_name } (both null when the RPC names nobody, e.g. promises).
 

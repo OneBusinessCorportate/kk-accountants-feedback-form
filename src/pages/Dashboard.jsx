@@ -77,27 +77,10 @@ export default function Dashboard() {
     { label: 'Просрочено (задачи)', num: overdueTasks, to: '/tasks', alert: overdueTasks > 0 },
   ]
 
-  // Chat timing stats from AI problems
-  const unanswered = problems.filter(
-    (p) => p.source === 'ai' && p.problem_title?.includes('Без ответа'),
-  ).length
-  const lateReplies = problems.filter(
-    (p) => p.source === 'ai' && p.problem_title?.includes('Поздний ответ'),
-  ).length
-  const overduePromises = problems.filter(
-    (p) => p.source === 'ai' && p.problem_title?.includes('обещание'),
-  ).length
-
-  const chatStats = [
-    { label: 'Без ответа (AI)', num: unanswered, to: allProblemsTo, alert: unanswered > 0 },
-    { label: 'Поздний ответ (AI)', num: lateReplies, to: allProblemsTo, alert: lateReplies > 0 },
-    { label: 'Невыполн. обещания', num: overduePromises, to: allProblemsTo, alert: overduePromises > 0 },
-  ]
-
   return (
     <div>
       <h1 className="page-title">Дашборд</h1>
-      <p className="page-subtitle">Обзор проблем, задач и чатов.</p>
+      <p className="page-subtitle">Обзор проблем и задач.</p>
 
       <ErrorMessage error={error} />
 
@@ -122,21 +105,6 @@ export default function Dashboard() {
           <div className="section-label">Задачи</div>
           <div className="stat-grid" style={{ marginBottom: 28 }}>
             {taskStats.map((s) => (
-              <Link
-                key={s.label}
-                to={s.to}
-                className={s.alert ? 'stat stat-alert' : 'stat'}
-                style={{ textDecoration: 'none' }}
-              >
-                <div className="num">{s.num}</div>
-                <div className="label">{s.label}</div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="section-label">Проблемные чаты (AI)</div>
-          <div className="stat-grid">
-            {chatStats.map((s) => (
               <Link
                 key={s.label}
                 to={s.to}

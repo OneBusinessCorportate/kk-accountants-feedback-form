@@ -19,7 +19,22 @@ React + Vite frontend, Supabase (Postgres) backend, deployed on Render as a Stat
 
 ## Accountant identity & ingestion (use ONLY valid employees)
 
-Problems are created by `kk_ingest_problems()` from (a) the manual Sona
+**Sona + Margarita only (0022, owner decision).** `kk_ingest_problems()` creates
+problems ONLY from the manual review results: Sona (`sqa_tickets` + ticketless
+`sqa_reviews` problems, 0021) and Margarita (`mqa_violations` + «Критично»/«Плохо»
+`mqa_evaluations`, 0021). The **live QA detection ingestion is DISABLED** —
+migration 0022 removed the `qa_unanswered_chats`/`qa_answered_late_chats`/
+`qa_overdue_promises` blocks (and their 0012 auto-resolve + 0014/0015
+reclassification steps) from the function and retired the open untouched `ai`
+rows to `auto_resolved`; `ai` rows an accountant/reviewer had acted on keep
+living through the normal review flow. The `qa_*` RPCs themselves are untouched
+(the QA dashboards still use them), the historical `ai` rows stay for QAStats /
+Review, and the Dashboard's «Проблемные чаты (AI)» section was removed. The
+paragraphs below about the live-QA mapping/auto-resolve/reclassification are
+kept as documentation of migrations 0004-0015 and of the JS mappers (which
+remain as the spec for the historical rows).
+
+Historically, problems were created by `kk_ingest_problems()` from (a) the manual Sona
 (`sqa_tickets`) and Margarita (`mqa_violations`) reviews and (b) the **live QA
 detection RPCs** that power the dashboards — `qa_unanswered_chats` («Без ответа»),
 `qa_answered_late_chats` («Поздний ответ») and `qa_overdue_promises`
