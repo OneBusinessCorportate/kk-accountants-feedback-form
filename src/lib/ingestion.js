@@ -60,6 +60,10 @@ const ACCOUNTANT_ALIAS_ENTRIES = [
   ['Էմիլյա', '7b5f8d9f-689d-4376-b31b-41e1c7b8199f', 'Emiliya Avanesyan'],
   ['Տաթև', '7875fde5-2cb5-44f0-a6b6-29a04c00a912', 'Tatev Accounting'],
   ['Առփինե', 'ce7d90ee-343c-453b-bbed-8da99c237a5c', 'Arpine Apresyan'],
+  ['Արթուր', 'ba6f193c-0786-4be7-bdb2-972ad8ef92d9', 'Arthur Barseghyan'],
+  ['Մարիաննա', '054ab7f5-cf51-40fc-8c01-ea5859423b94', 'Marianna Khachatryan'],
+  ['Ալիսա', 'd4e91c8a-f53d-499a-847f-9f34b9e410cb', 'Alisa Tsaturyan'],
+  ['Աշոտ', '55b6065d-f681-4067-9080-261e0847ea6e', 'Ashot Mantashyan'],
 ]
 
 export const ACCOUNTANT_ALIASES = new Map(
