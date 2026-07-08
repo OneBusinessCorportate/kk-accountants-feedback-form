@@ -36,6 +36,31 @@ unassigned (supervisors only).
 `src/lib/ingestion.js` mirrors these as `mapUnansweredChat`/`mapLateChat`/`mapOverduePromise`
 for spec + tests.
 
+**Full quality-review coverage (0021).** Tickets and violations alone left most
+accountants with little or no data (17 `sqa_tickets` + 62 `mqa_violations`,
+while `mqa_evaluations` holds 5 687 monthly per-chat scorecards). Two more
+sources now feed `kk_ingest_problems()`:
+
+- `mqa_evaluations` rated «Критично» (priority 1) / «Плохо» (priority 2) →
+  `margarita_eval:<id>`, source `margarita_review`, titles «Критичная/Низкая
+  оценка качества сервиса», description = reviewer comment + score/band/period +
+  manual SLA/accuracy criteria. Skips an evaluation already covered by an
+  `mqa_violations` row for the same chat + accountant within ±3 days (the
+  violation has the more specific title), and — unlike other manual sources —
+  ingests ONLY rows that resolve to a real employee: an evaluation is
+  intrinsically about one accountant's work, so «-»/«հանձնված»/«#N/A» rows are
+  dropped rather than queued unassigned.
+- `sqa_reviews` with `record_type='problem'` but no `sqa_tickets` row →
+  `sona_review:<id>`, source `sona_review`, neutral title «Проблема по проверке
+  качества» (0018 — checker identity stays hidden).
+
+JS mirrors: `mapMargaritaEvaluation` (returns null for unresolved names) and
+`mapSonaReviewProblem` in `src/lib/ingestion.js`. First run ingested 258 + 1
+problems; every accountant present in the QA sources now has data. The four
+active accountants absent from ALL sources (Alisa Tsaturyan, Arthur Barseghyan,
+Ashot Mantashyan, Marianna Khachatryan) still have none — there is nothing to
+ingest until the QA platforms start covering them.
+
 **Auto-resolution of stale live detections (0012).** The live `qa_*` detections are
 transient: a chat flagged «Без ответа» / «Поздний ответ» / «Невыполненное обещание»
 stops being reported once it's answered/sent. Since `kk_ingest_problems()` is an

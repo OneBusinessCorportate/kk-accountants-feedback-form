@@ -13,7 +13,11 @@
 // localized NAME — so that name is resolved to a real employee (uuid + canonical
 // full_name) via resolveAccountant() before it is stored:
 //   - Sona  (sona-qa-platform)      → `sqa_tickets`   → source 'sona_review'
+//                                    + `sqa_reviews` record_type='problem'
+//                                      without a ticket (0021)
 //   - Margarita (margarita-qa-platform) → `mqa_violations` → source 'margarita_review'
+//                                    + `mqa_evaluations` rated «Критично»/«Плохо»
+//                                      (0021, resolved accountants only)
 
 export const SONA_SOURCE = 'sona_review'
 export const MARGARITA_SOURCE = 'margarita_review'
@@ -110,8 +114,18 @@ export function sonaProblemId(ticketId) {
   return `${'sona'}:${ticketId}`
 }
 
+// Sona review with record_type='problem' that never got a ticket (0021).
+export function sonaReviewProblemId(reviewId) {
+  return `${'sona_review'}:${reviewId}`
+}
+
 export function margaritaProblemId(violationId) {
   return `${'margarita'}:${violationId}`
+}
+
+// Margarita monthly chat-quality evaluation rated «Критично»/«Плохо» (0021).
+export function margaritaEvalProblemId(evaluationId) {
+  return `${'margarita_eval'}:${evaluationId}`
 }
 
 // ---- priority mapping (1 = high, 2 = medium, 3 = low) ----------------------
@@ -126,6 +140,10 @@ export function margaritaPriority(severity) {
   if (severity === 'Критичное' || severity === 'Грубое') return 1
   if (severity === 'Среднее') return 2
   return 2
+}
+
+export function margaritaEvalPriority(qualityBand) {
+  return qualityBand === 'Критично' ? 1 : 2
 }
 
 // ---- row mappers -----------------------------------------------------------
@@ -174,6 +192,77 @@ export function mapMargaritaViolation(row = {}) {
     problem_description: firstText(row.note, row.violation_type),
     ai_comment: null,
     detected_at: row.created_at ?? row.vdate ?? null,
+    status: INGEST_STATUS,
+  }
+}
+
+// Sona review with record_type='problem' but NO sqa_tickets row (0021). The
+// ticketed reviews are covered by mapSonaTicket (richer title/description);
+// this catches the confirmed problems that previously never left sqa_reviews.
+// Neutral title per 0018 — the checker's identity stays hidden.
+export function mapSonaReviewProblem(row = {}) {
+  const { accountant_id, accountant_name } = resolveAccountant(
+    firstText(row.accountant, row.chat_accountant),
+  )
+  return {
+    problem_id: sonaReviewProblemId(row.id),
+    source: SONA_SOURCE,
+    client_name: firstText(row.name_agr, row.chat_name),
+    contract_id: row.company_agr_no ?? null,
+    chat_name: firstText(row.chat_name),
+    chat_link: firstText(row.chat_link),
+    accountant_name,
+    accountant_id,
+    priority: sonaPriority({ urgent: row.ticket_urgent, priority: row.ticket_priority }),
+    problem_title: 'Проблема по проверке качества',
+    problem_description: firstText(row.comment),
+    ai_comment: null,
+    detected_at: row.created_at ?? row.checking_date ?? null,
+    status: INGEST_STATUS,
+  }
+}
+
+// Human-readable summary of a low-band Margarita evaluation: the reviewer's
+// comment (when present) + score/band/period + the manual criteria that exist.
+// Mirrors the concat_ws('. ', …) expression in migration 0021.
+export function margaritaEvalDescription(row = {}) {
+  const criteria = row.scores?.criteria ?? {}
+  const parts = [
+    firstText(row.comment),
+    `Оценка качества обслуживания: ${row.total_score ?? '—'}/100 («${row.quality_band}»), период ${firstText(row.period) ?? '—'}`,
+    criteria.sla != null && criteria.sla !== '' ? `SLA: ${criteria.sla}/5` : null,
+    criteria.accuracy != null && criteria.accuracy !== '' ? `Точность: ${criteria.accuracy}/5` : null,
+  ]
+  return parts.filter(Boolean).join('. ')
+}
+
+// Margarita monthly chat-quality evaluation rated «Критично»/«Плохо» (0021).
+// Unlike the other manual sources, an evaluation that does not resolve to a
+// real employee is NOT ingested (returns null): the record is intrinsically
+// about one accountant's work, so an unattributable row («-», «հանձնված»,
+// «#N/A») would only be unactionable noise. The SQL additionally skips
+// evaluations already covered by an mqa_violations row for the same chat +
+// accountant within ±3 days (that violation has the more specific title).
+export function mapMargaritaEvaluation(row = {}) {
+  const { accountant_id, accountant_name } = resolveAccountant(row.accountant)
+  if (!accountant_id) return null
+  return {
+    problem_id: margaritaEvalProblemId(row.id),
+    source: MARGARITA_SOURCE,
+    client_name: firstText(row.name_agr, row.chat_name),
+    contract_id: row.chat_agr_no ?? null,
+    chat_name: firstText(row.chat_name),
+    chat_link: firstText(row.chat_link),
+    accountant_name,
+    accountant_id,
+    priority: margaritaEvalPriority(row.quality_band),
+    problem_title:
+      row.quality_band === 'Критично'
+        ? 'Критичная оценка качества сервиса'
+        : 'Низкая оценка качества сервиса',
+    problem_description: margaritaEvalDescription(row),
+    ai_comment: null,
+    detected_at: row.created_at ?? row.checking_date ?? null,
     status: INGEST_STATUS,
   }
 }

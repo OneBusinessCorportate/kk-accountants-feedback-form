@@ -7,8 +7,11 @@ import {
   margaritaProblemId,
   sonaPriority,
   margaritaPriority,
+  margaritaEvalPriority,
   mapSonaTicket,
   mapMargaritaViolation,
+  mapMargaritaEvaluation,
+  mapSonaReviewProblem,
   UPSERT_REFRESH_COLUMNS,
   ACCOUNTANT_ALIASES,
   normalizeAccountant,
@@ -137,6 +140,114 @@ describe('mapMargaritaViolation', () => {
     const p = mapMargaritaViolation({ id: 'v-9', severity: 'Среднее', vdate: '2026-06-01' })
     expect(p.problem_title).toBe('Нарушение (Маргарита)')
     expect(p.detected_at).toBe('2026-06-01')
+    expect(p.priority).toBe(2)
+  })
+})
+
+describe('mapMargaritaEvaluation (low-band monthly chat scorecard, 0021)', () => {
+  const row = {
+    id: 'e-42',
+    chat_agr_no: 'B-3836',
+    accountant: 'Նաիրա',
+    period: '202607',
+    checking_date: '2026-07-06',
+    created_at: '2026-07-06T15:01:18Z',
+    total_score: 50,
+    quality_band: 'Критично',
+    comment: 'Клиенту не отправлены налоги вовремя',
+    scores: { criteria: { sla: 2, accuracy: 3 } },
+    // joined from mqa_chats:
+    name_agr: 'NAIRA CLIENT LLC',
+    chat_name: 'Наира/B-3836',
+    chat_link: 'https://web.telegram.org/a/#-100',
+  }
+
+  it('produces a complete kk_problems row for a «Критично» evaluation', () => {
+    const p = mapMargaritaEvaluation(row)
+    expect(p.problem_id).toBe('margarita_eval:e-42')
+    expect(p.source).toBe(MARGARITA_SOURCE)
+    expect(p.contract_id).toBe('B-3836')
+    expect(p.client_name).toBe('NAIRA CLIENT LLC')
+    expect(p.accountant_name).toBe('Naira Zalinian')
+    expect(p.accountant_id).toBe('b2799800-e8bc-4b28-8ce6-db73eb548f3b')
+    expect(p.priority).toBe(1)
+    expect(p.problem_title).toBe('Критичная оценка качества сервиса')
+    expect(p.problem_description).toBe(
+      'Клиенту не отправлены налоги вовремя. ' +
+        'Оценка качества обслуживания: 50/100 («Критично»), период 202607. ' +
+        'SLA: 2/5. Точность: 3/5',
+    )
+    expect(p.ai_comment).toBeNull()
+    expect(p.detected_at).toBe('2026-07-06T15:01:18Z')
+    expect(p.status).toBe(INGEST_STATUS)
+  })
+
+  it('maps «Плохо» to medium priority and its own title', () => {
+    const p = mapMargaritaEvaluation({ ...row, quality_band: 'Плохо' })
+    expect(p.priority).toBe(2)
+    expect(p.problem_title).toBe('Низкая оценка качества сервиса')
+  })
+
+  it('builds the description without missing parts (no comment / no criteria)', () => {
+    const p = mapMargaritaEvaluation({
+      id: 'e-1',
+      accountant: 'Օլյա',
+      period: '202606',
+      total_score: 60,
+      quality_band: 'Плохо',
+      scores: {},
+    })
+    expect(p.problem_description).toBe(
+      'Оценка качества обслуживания: 60/100 («Плохо»), период 202606',
+    )
+  })
+
+  it('never attributes an evaluation to a non-person: unresolved name → null (skip)', () => {
+    // «-», «հանձնված», «#N/A» mark unassigned chats, not people.
+    expect(mapMargaritaEvaluation({ ...row, accountant: '-' })).toBeNull()
+    expect(mapMargaritaEvaluation({ ...row, accountant: 'հանձնված' })).toBeNull()
+    expect(mapMargaritaEvaluation({ ...row, accountant: '#N/A' })).toBeNull()
+  })
+
+  it('margaritaEvalPriority: Критично → 1, anything else → 2', () => {
+    expect(margaritaEvalPriority('Критично')).toBe(1)
+    expect(margaritaEvalPriority('Плохо')).toBe(2)
+    expect(margaritaEvalPriority(undefined)).toBe(2)
+  })
+})
+
+describe('mapSonaReviewProblem (problem-review without a ticket, 0021)', () => {
+  it('produces a kk_problems row with the neutral (identity-hiding) title', () => {
+    const p = mapSonaReviewProblem({
+      id: 'r-15',
+      company_agr_no: 'B-4392',
+      accountant: 'Օլյա',
+      comment: 'Отчёт сдан с ошибкой в реквизитах',
+      ticket_urgent: true,
+      created_at: '2026-06-20T09:00:00Z',
+      name_agr: 'PRIME DIGITAL LLC',
+      chat_name: 'Prime B-4392',
+      chat_link: 'https://web.telegram.org/a/#-5138517763',
+    })
+    expect(p.problem_id).toBe('sona_review:r-15')
+    expect(p.source).toBe(SONA_SOURCE)
+    expect(p.accountant_name).toBe('Olya Hakobyan')
+    expect(p.priority).toBe(1)
+    // 0018: the checker's identity must not leak into the title.
+    expect(p.problem_title).toBe('Проблема по проверке качества')
+    expect(p.problem_description).toBe('Отчёт сдан с ошибкой в реквизитах')
+    expect(p.status).toBe(INGEST_STATUS)
+  })
+
+  it('falls back to checking_date and stays unassigned for unknown names', () => {
+    const p = mapSonaReviewProblem({
+      id: 'r-16',
+      accountant: 'Էրիկ',
+      checking_date: '2026-06-10',
+    })
+    expect(p.accountant_id).toBeNull()
+    expect(p.accountant_name).toBeNull()
+    expect(p.detected_at).toBe('2026-06-10')
     expect(p.priority).toBe(2)
   })
 })
