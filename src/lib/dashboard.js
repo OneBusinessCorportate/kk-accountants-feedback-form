@@ -369,12 +369,15 @@ export function groupClients(problems = []) {
         sources: new Set(),
         accountants: new Set(),
         chats: new Map(),
+        contracts: new Set(),
       })
     }
     const row = map.get(key)
     row.problems.push(p)
     row.sources.add(p.source)
     if (p.accountant_name) row.accountants.add(p.accountant_name)
+    const c = normalizeContract(p.contract_id)
+    if (c) row.contracts.add(c)
     const link = p.chat_link
     if (link && !row.chats.has(link)) {
       row.chats.set(link, { name: p.chat_name || p.client_name || 'Чат', link })
@@ -387,5 +390,76 @@ export function groupClients(problems = []) {
     sources: [...r.sources],
     accountants: [...r.accountants],
     chats: [...r.chats.values()],
+    contracts: [...r.contracts],
   }))
+}
+
+// ---- mailings / рассылки ---------------------------------------------------
+// The real record of whether a client mailing was done lives in Margarita's
+// mqa_chat_mailings (exposed via kk_chat_mailings), NOT in kk_tasks — which is
+// why done mailings used to show as "not done". Margarita words completion
+// differently per category, so normalise the status before checking:
+//   done   — «Отправил» (sent), «Получил» (received), «Нет долга» (no debt),
+//            or confirmed = true
+//   pending— «Не отправил», «Запросил …, не получил», «Предстоящая»,
+//            «… написал / позвонил» (debt reminder still in progress)
+//   ignore — «Inactive» / blank
+// Negatives are checked FIRST so «Не отправил» is not mistaken for «Отправил».
+
+const MAILING_DONE_STEMS = ['отправил', 'получил', 'нет долга']
+const MAILING_PENDING_STEMS = ['не отправил', 'не получил', 'предстоящ', 'написал', 'позвонил']
+
+export function classifyMailingStatus(row = {}) {
+  const s = (row.status ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' ')
+  if (s === '' || s === 'inactive') return 'ignore'
+  if (row.confirmed === true) return 'done'
+  if (MAILING_PENDING_STEMS.some((k) => s.includes(k))) return 'pending'
+  if (MAILING_DONE_STEMS.some((k) => s.includes(k))) return 'done'
+  // Unknown wording → treat as not-yet-done so we never invent a false "done".
+  return 'pending'
+}
+
+// Build contract → 'done' | 'pending' from the mailing rows, using each
+// contract's LATEST period only (older months don't mask the current state).
+export function buildMailingIndex(mailings = []) {
+  const byContract = new Map() // contract → Map(period → {done, pending})
+  for (const m of mailings) {
+    const c = normalizeContract(m.agr_no)
+    if (!c) continue
+    const cls = classifyMailingStatus(m)
+    if (cls === 'ignore') continue
+    if (!byContract.has(c)) byContract.set(c, new Map())
+    const periods = byContract.get(c)
+    const period = (m.period ?? '').toString()
+    if (!periods.has(period)) periods.set(period, { done: 0, pending: 0 })
+    periods.get(period)[cls] += 1
+  }
+  const out = new Map()
+  for (const [c, periods] of byContract) {
+    const latest = [...periods.keys()].sort().pop()
+    const agg = periods.get(latest)
+    out.set(c, agg.pending > 0 ? 'pending' : agg.done > 0 ? 'done' : 'none')
+  }
+  return out
+}
+
+// A client's overall mailing state across its contracts:
+//   'done'    — has completed mailing(s) and nothing still pending
+//   'pending' — something is still outstanding (or a mix of done + pending)
+//   'none'    — no mailing records at all (fall back to manual kk_tasks)
+export function mailingStateForContracts(contracts = [], index) {
+  if (!index) return 'none'
+  let anyKnown = false
+  let anyDone = false
+  let anyPending = false
+  for (const raw of contracts) {
+    const st = index.get(normalizeContract(raw))
+    if (!st || st === 'none') continue
+    anyKnown = true
+    if (st === 'done') anyDone = true
+    if (st === 'pending') anyPending = true
+  }
+  if (!anyKnown) return 'none'
+  if (anyPending) return 'pending'
+  return anyDone ? 'done' : 'none'
 }

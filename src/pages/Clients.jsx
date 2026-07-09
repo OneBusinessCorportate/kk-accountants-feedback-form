@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { fetchProblems, fetchChats, fetchTasks, createTask } from '../lib/api'
+import { fetchProblems, fetchChats, fetchTasks, fetchMailings, createTask } from '../lib/api'
 import { TASK_TYPE_LABELS, SOURCE_LABELS } from '../lib/constants'
-import { DASHBOARD_SOURCES, prepareDashboard, groupClients, formatDate } from '../lib/dashboard'
+import {
+  DASHBOARD_SOURCES,
+  prepareDashboard,
+  groupClients,
+  formatDate,
+  buildMailingIndex,
+  mailingStateForContracts,
+} from '../lib/dashboard'
 import { keepOwnProblems } from '../lib/scope'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
@@ -16,6 +23,7 @@ export default function Clients() {
   const [problems, setProblems] = useState([])
   const [chats, setChats] = useState([])
   const [tasks, setTasks] = useState([])
+  const [mailings, setMailings] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [expanded, setExpanded] = useState(null)
@@ -29,12 +37,14 @@ export default function Clients() {
       fetchProblems({ sourceIn: DASHBOARD_SOURCES }),
       fetchChats().catch(() => []),
       fetchTasks(),
+      fetchMailings().catch(() => []),
     ])
-      .then(([p, c, t]) => {
+      .then(([p, c, t, m]) => {
         if (!active) return
         setProblems(keepOwnProblems(p, access))
         setChats(c)
         setTasks(t)
+        setMailings(m)
       })
       .catch(setError)
       .finally(() => active && setLoading(false))
@@ -65,9 +75,8 @@ export default function Clients() {
     return list
   }, [problems, chats, tasks])
 
-  const visibleClients = onlyNoMailing
-    ? clients.filter((c) => !c.tasks.some((t) => t.task_type === 'mailing' && t.done))
-    : clients
+  // Contract → mailing state, from Margarita's real mailing log (kk_chat_mailings).
+  const mailingIndex = useMemo(() => buildMailingIndex(mailings), [mailings])
 
   function hasDone(client, type) {
     return client.tasks.some((t) => t.task_type === type && t.done)
@@ -75,6 +84,21 @@ export default function Clients() {
   function hasPending(client, type) {
     return client.tasks.some((t) => t.task_type === type && !t.done)
   }
+
+  // The «Рассылка» status is derived from Margarita's real mailing records
+  // (normalised), so a mailing that was actually done no longer shows as
+  // not-done. A manually-completed kk_tasks mailing still counts as done.
+  function mailingState(client) {
+    if (hasDone(client, 'mailing')) return 'done'
+    const st = mailingStateForContracts(client.contracts, mailingIndex)
+    if (st !== 'none') return st
+    if (hasPending(client, 'mailing')) return 'pending'
+    return 'none'
+  }
+
+  const visibleClients = onlyNoMailing
+    ? clients.filter((c) => mailingState(c) !== 'done')
+    : clients
 
   async function handleQuickCreate(clientName, type) {
     const key = `${clientName}:${type}`
@@ -97,9 +121,13 @@ export default function Clients() {
   function taskCell(client, type) {
     const key = `${client.name}:${type}`
     const busy = creating === key
-    if (hasDone(client, type))
+    // Mailing status comes from Margarita's records (with a manual override);
+    // report/receipt stay on the manual kk_tasks check.
+    const done = type === 'mailing' ? mailingState(client) === 'done' : hasDone(client, type)
+    const pending = type === 'mailing' ? mailingState(client) === 'pending' : hasPending(client, type)
+    if (done)
       return <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 16 }}>✓</span>
-    if (hasPending(client, type))
+    if (pending)
       return <span style={{ color: 'var(--amber)', fontSize: 16 }}>○</span>
     return (
       <button
@@ -117,9 +145,7 @@ export default function Clients() {
     )
   }
 
-  const missingMailingCount = clients.filter(
-    (c) => !c.tasks.some((t) => t.task_type === 'mailing' && t.done),
-  ).length
+  const missingMailingCount = clients.filter((c) => mailingState(c) !== 'done').length
 
   return (
     <div>
@@ -193,7 +219,7 @@ export default function Clients() {
                   {visibleClients.map((c) => {
                     const isExpanded = expanded === c.key
                     const openProblems = c.problems.filter((p) => !RESOLVED.has(p.status))
-                    const noMailing = !hasDone(c, 'mailing')
+                    const noMailing = mailingState(c) !== 'done'
                     return (
                       <React.Fragment key={c.key}>
                         <tr

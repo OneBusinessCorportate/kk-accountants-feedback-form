@@ -32,6 +32,15 @@ export async function fetchChats() {
   return unwrap(await supabase.from('kk_chat_directory').select('agr_no, chat_link, status'))
 }
 
+// Margarita's mailing log (рассылки) — the real record of whether a client
+// mailing was done, keyed by contract + period + category. Exposed read-only
+// via the kk_chat_mailings view (migration 0024).
+export async function fetchMailings() {
+  return unwrap(
+    await supabase.from('kk_chat_mailings').select('agr_no, period, category, status, confirmed'),
+  )
+}
+
 export async function fetchProblemById(problemId) {
   return unwrap(
     await supabase.from('kk_problems').select('*').eq('problem_id', problemId).single(),

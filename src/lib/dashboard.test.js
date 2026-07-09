@@ -20,6 +20,9 @@ import {
   isOverdue,
   prepareDashboard,
   groupClients,
+  classifyMailingStatus,
+  buildMailingIndex,
+  mailingStateForContracts,
   CATEGORY,
 } from './dashboard'
 
@@ -234,6 +237,53 @@ describe('prepareDashboard end to end', () => {
   })
 })
 
+describe('mailings / рассылки (req: done mailings must not show as not-done)', () => {
+  it('recognises Margarita completion wording per category', () => {
+    expect(classifyMailingStatus({ status: 'Отправил' })).toBe('done')
+    expect(classifyMailingStatus({ status: 'Получил' })).toBe('done')
+    expect(classifyMailingStatus({ status: 'Нет долга' })).toBe('done')
+    expect(classifyMailingStatus({ status: 'Не отправил' })).toBe('pending')
+    expect(classifyMailingStatus({ status: 'Запросил 1, не получил' })).toBe('pending')
+    expect(classifyMailingStatus({ status: 'Предстоящая' })).toBe('pending')
+    expect(classifyMailingStatus({ status: '1-й написал' })).toBe('pending')
+    expect(classifyMailingStatus({ status: 'Inactive' })).toBe('ignore')
+    expect(classifyMailingStatus({ status: '' })).toBe('ignore')
+  })
+  it('a manual confirmation counts as done regardless of status text', () => {
+    expect(classifyMailingStatus({ status: 'что-то', confirmed: true })).toBe('done')
+  })
+  it('does not confuse «Не отправил» with «Отправил»', () => {
+    expect(classifyMailingStatus({ status: 'не отправил' })).toBe('pending')
+  })
+
+  it('uses the latest period per contract', () => {
+    const idx = buildMailingIndex([
+      { agr_no: 'B-1', period: '202605', category: 'main_taxes', status: 'Не отправил' },
+      { agr_no: 'B-1', period: '202607', category: 'main_taxes', status: 'Отправил' }, // latest = done
+      { agr_no: 'B-2', period: '202607', category: 'primary_docs', status: 'Запросил 1, не получил' },
+    ])
+    expect(idx.get('B-1')).toBe('done')
+    expect(idx.get('B-2')).toBe('pending')
+  })
+
+  it('client state: done when all done, pending when anything outstanding, none when unknown', () => {
+    const idx = buildMailingIndex([
+      { agr_no: 'B-1', period: '202607', category: 'main_taxes', status: 'Отправил' },
+      { agr_no: 'B-1', period: '202607', category: 'primary_docs', status: 'Получил' },
+      { agr_no: 'B-2', period: '202607', category: 'main_taxes', status: 'Отправил' },
+      { agr_no: 'B-2', period: '202607', category: 'primary_docs', status: 'Запросил 1, не получил' },
+    ])
+    expect(mailingStateForContracts(['B-1'], idx)).toBe('done')
+    expect(mailingStateForContracts(['B-2'], idx)).toBe('pending')
+    expect(mailingStateForContracts(['В-1'], idx)).toBe('done') // Cyrillic В normalises to B
+    expect(mailingStateForContracts(['UNKNOWN'], idx)).toBe('none')
+    // a client spanning a done and an unknown contract is still done
+    expect(mailingStateForContracts(['B-1', 'UNKNOWN'], idx)).toBe('done')
+    // a client spanning done + pending contracts is pending (something outstanding)
+    expect(mailingStateForContracts(['B-1', 'B-2'], idx)).toBe('pending')
+  })
+})
+
 describe('groupClients (no duplicate clients)', () => {
   it('one row per client, merging chats and sources', () => {
     const rows = [
@@ -247,5 +297,6 @@ describe('groupClients (no duplicate clients)', () => {
     expect(acme.problems).toHaveLength(2)
     expect(acme.sources.sort()).toEqual(['margarita_review', 'sona_review'])
     expect(acme.chats).toHaveLength(1)
+    expect(acme.contracts).toEqual(['B-100'])
   })
 })

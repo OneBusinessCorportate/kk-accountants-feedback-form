@@ -154,6 +154,23 @@ now fixed). The management-only `Review` / `QA Точность` pages still rat
 historical `ai` detections for the learning loop below — they are QA tools, not
 the dashboard.
 
+## «Рассылка» status from Margarita's real mailing log (0024)
+
+The Clients page «Рассылка» column used to read only `kk_tasks` (nearly empty),
+so a mailing that WAS actually sent showed as "not done" (false negative — every
+client showed «+»). The real record is Margarita's `mqa_chat_mailings` (per
+contract + period + category), exposed read-only via the `kk_chat_mailings` view
+(migration 0024). `classifyMailingStatus()` normalises the per-category wording
+before checking — done = «Отправил»/«Получил»/«Нет долга» or `confirmed=true`;
+pending = «Не отправил»/«Запросил …, не получил»/«Предстоящая»/«… написал/
+позвонил»; «Inactive»/blank ignored; negatives matched first so «Не отправил»
+isn't read as «Отправил». `buildMailingIndex()` reduces to one state per
+contract using its LATEST period; `mailingStateForContracts()` gives a client
+«done» only when every contract is done and nothing is outstanding (so no new
+false positives), «pending» when something is still open, «none» when Margarita
+has no record (then the manual kk_tasks mailing is used as a fallback / override).
+Only the «Рассылка» column changed; «Отчёт»/«Квитанция» still use kk_tasks.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a
