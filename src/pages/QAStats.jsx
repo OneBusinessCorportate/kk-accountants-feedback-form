@@ -230,7 +230,7 @@ export default function QAStats() {
           >
             <option value="ai">AI</option>
             <option value="margarita_review">Качество сервиса</option>
-            <option value="sona_review">Качество бухгалтерии</option>
+            <option value="sona_review">Качество бухгалтерской работы</option>
             <option value="manual">Вручную</option>
             <option value="all">Все источники</option>
           </select>

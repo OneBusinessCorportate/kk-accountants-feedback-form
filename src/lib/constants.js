@@ -41,7 +41,7 @@ export const SOURCES = ['ai', 'margarita_review', 'sona_review', 'manual']
 export const SOURCE_LABELS = {
   ai: 'AI',
   margarita_review: 'Качество сервиса',
-  sona_review: 'Качество бухгалтерии',
+  sona_review: 'Качество бухгалтерской работы',
   manual: 'Вручную',
 }
 
