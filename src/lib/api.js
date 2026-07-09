@@ -16,11 +16,20 @@ export async function fetchProblems(filters = {}) {
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
   if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
   if (filters.source) query = query.eq('source', filters.source)
+  if (filters.sourceIn?.length) query = query.in('source', filters.sourceIn)
   // Non-AI sources (Margarita/Sona reviews) are shown regardless of age;
   // AI-detected items (unanswered chats, etc.) are capped at the since window.
   if (filters.since) query = query.or(`source.neq.ai,created_at.gte.${filters.since}`)
 
   return unwrap(await query)
+}
+
+// kk-soprovozhdeniya (mqa_chats) is the source of truth for chat activity. We
+// only need enough to tell active from inactive and to match a problem to a
+// chat (by link or contract number). Used by the dashboard to hide inactive
+// chats. Kept anon-read; select just the three columns we need.
+export async function fetchChats() {
+  return unwrap(await supabase.from('kk_chat_directory').select('agr_no, chat_link, status'))
 }
 
 export async function fetchProblemById(problemId) {

@@ -108,6 +108,52 @@ RPC ingestion is kept but de-duplicated (skips a chat that already has an open
 to `auto_resolved`. Display is unchanged — the Dashboard already counts «Поздний
 ответ» by title and excludes `auto_resolved`.
 
+## Dashboard rebuild — Margarita + Sona only, active chats, working-hours SLA (0023)
+
+Owner decision (2026-07): the accountant-facing dashboard must use **only**
+Margarita's and Sona's review results — **no AI analysis of any kind** (no AI
+conclusions/comments/risks/missed-call/SLA/classification). All that logic now
+lives in one tested, DB-free module, `src/lib/dashboard.js` (spec + tests in
+`dashboard.test.js`), and `prepareDashboard()` is the single entry point every
+accountant-facing page calls. Rules enforced there:
+
+- **No AI.** Only `source ∈ {margarita_review, sona_review}` is ever counted
+  (`DASHBOARD_SOURCES`); `ai` rows and reviewer-confirmed false positives are
+  dropped before anything else. Pages fetch with `fetchProblems({ sourceIn:
+  DASHBOARD_SOURCES })`.
+- **Active chats only (source of truth = kk-soprovozhdeniya).** The Margarita
+  `mqa_chats` table (Чаты sheet; `status` Active/Inactive) is exposed read-only
+  to the anon frontend through the `kk_chat_directory` view (migration 0023 —
+  `mqa_chats` itself has RLS with no anon policy). `fetchChats()` loads it.
+  A problem on an **inactive** chat is hidden entirely; a chat that can't be
+  matched by link or contract number is **unknown** → «Требует проверки», never
+  counted. Matching normalises chat links and Cyrillic/Latin contract numbers.
+- **Responsible accountant only from the resolved employee id.** A row with no
+  `accountant_id` goes to «Требует проверки» — we never guess an owner (req 7).
+- **Dedup (req 4).** `dedupeProblems()` collapses rows sharing
+  source+chat+accountant+day+title; `groupClients()` gives one row per client
+  (case/space-insensitive key) merging its chats + sources, so a client never
+  repeats. Similar-but-unequal names are NOT auto-merged.
+- **Date filters actually recompute (req 3).** `PERIODS` = Сегодня / 2 дня /
+  Неделя / Всё время; boundaries are day-aligned in **Asia/Yerevan** and filter
+  on `detected_at`. `formatDate()` also renders in Yerevan tz so dates are
+  correct.
+- **SLA in Margarita working hours (req 1).** `businessMinutesBetween()` counts
+  only 10:00–13:00 and 14:00–19:00 Yerevan (8h/day); lunch and off-hours don't
+  count, a message after 19:00 effectively starts next morning, one in 13–14
+  starts at 14:00. `isOverdue()` compares the working-hours age to
+  `SLA_BUSINESS_HOURS` by priority. No AI/message timing is used.
+
+Pages: `Dashboard.jsx` shows period pills + category cards; **clicking a
+category shows only that category** (req 5/6) and nothing before a click.
+`Clients.jsx` and `Accountant.jsx` route their data through
+`prepareDashboard()` too. Tasks come only from `kk_tasks` (manual / Emilia's
+side — never auto-created from AI, req 9) and are scoped by `access.employee_id`
+(the login identity field; the old `access.id` was undefined → a scoping bug,
+now fixed). The management-only `Review` / `QA Точность` pages still rate the
+historical `ai` detections for the learning loop below — they are QA tools, not
+the dashboard.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a

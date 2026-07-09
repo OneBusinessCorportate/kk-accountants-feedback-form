@@ -1,42 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment } from '../lib/api'
+import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment } from '../lib/api'
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
+import { displayAuthor, problemContext, sortQueue } from '../lib/presentation'
 import {
-  displayAuthor,
+  DASHBOARD_SOURCES,
+  PERIODS,
+  prepareDashboard,
   formatDate,
   isOverdue,
-  problemContext,
-  sortQueue,
-} from '../lib/presentation'
+} from '../lib/dashboard'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { useAuth } from '../lib/AuthContext'
 import { keepOwnProblems } from '../lib/scope'
-
-const PERIODS = [
-  { key: 'today', label: 'Сегодня' },
-  { key: '1d',    label: 'Вчера' },
-  { key: '2d',    label: '2 дня' },
-  { key: '7d',    label: 'Неделя' },
-  { key: 'all',   label: 'Всё время' },
-]
-
-function sinceForPeriod(key) {
-  if (key === 'all') return undefined
-  if (key === 'today') {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d.toISOString()
-  }
-  const days = key === '1d' ? 1 : key === '2d' ? 2 : 7
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-}
 
 export default function Accountant() {
   const { access, isSupervisor } = useAuth()
   const [accountants, setAccountants] = useState([])
   const [accountantId, setAccountantId] = useState('')
-  const [period, setPeriod] = useState('2d')
+  const [period, setPeriod] = useState('week')
   const [problems, setProblems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -57,18 +39,24 @@ export default function Accountant() {
     const reqId = ++reqRef.current
     setLoading(true)
     setError(null)
-    fetchProblems({
-      // Supervisors may filter server-side; scoped accountants fetch all
-      // actionable rows and are narrowed to their own client-side.
-      accountantId: isSupervisor ? accountantId || undefined : undefined,
-      statusIn: ACCOUNTANT_ACTIONABLE,
-      since: sinceForPeriod(period),
-    })
-      .then((data) => {
+    // Only Margarita/Sona reviews (never AI), only actionable statuses. The
+    // chat directory lets us drop problems on inactive/unknown chats.
+    Promise.all([
+      fetchProblems({
+        // Supervisors may filter server-side by accountant; a scoped accountant
+        // fetches all and is narrowed client-side (matches uuid AND name).
+        accountantId: isSupervisor ? accountantId || undefined : undefined,
+        statusIn: ACCOUNTANT_ACTIONABLE,
+        sourceIn: DASHBOARD_SOURCES,
+      }),
+      fetchChats().catch(() => []),
+    ])
+      .then(([data, chats]) => {
         if (reqId !== reqRef.current) return
-        // Drop problems a reviewer judged a false positive — they're not real work.
-        const visible = data.filter((p) => p.verdict !== 'not_problematic')
-        setProblems(isSupervisor ? visible : keepOwnProblems(visible, access))
+        // prepareDashboard drops AI/false-positives/inactive chats, filters the
+        // period and keeps only rows with a resolved accountant.
+        const { active } = prepareDashboard({ problems: data, chats, period, now: new Date() })
+        setProblems(isSupervisor ? active : keepOwnProblems(active, access))
       })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))

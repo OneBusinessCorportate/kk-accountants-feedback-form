@@ -46,7 +46,7 @@ export default function Tasks() {
 
   const load = useCallback(() => {
     setLoading(true)
-    const filters = isSupervisor ? {} : { accountantId: access?.id }
+    const filters = isSupervisor ? {} : { accountantId: access?.employee_id }
     Promise.all([fetchTasks(filters), isSupervisor ? fetchAccountants() : Promise.resolve([])])
       .then(([t, a]) => { setTasks(t); setAccountants(a) })
       .catch(setError)
@@ -58,7 +58,7 @@ export default function Tasks() {
   function openForm() {
     const pre = isSupervisor
       ? BLANK
-      : { ...BLANK, accountant_id: access?.id || '', accountant_name: access?.full_name || '' }
+      : { ...BLANK, accountant_id: access?.employee_id || '', accountant_name: access?.full_name || '' }
     setForm(pre)
     setSaveError(null)
     setShowForm(true)
