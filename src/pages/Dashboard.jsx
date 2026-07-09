@@ -80,7 +80,7 @@ export default function Dashboard() {
     <div>
       <h1 className="page-title">Дашборд</h1>
       <p className="page-subtitle">
-        Только проверки Маргариты и Соны · активные чаты · рабочее время 10:00–13:00, 14:00–19:00.
+        Только результаты проверки качества · активные чаты · рабочее время 10:00–13:00, 14:00–19:00.
       </p>
 
       <ErrorMessage error={error} />
