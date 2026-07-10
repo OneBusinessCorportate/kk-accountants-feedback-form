@@ -193,7 +193,6 @@ function ReactionBox({ problem, onDone }) {
   const { access } = useAuth()
   const [appeals, setAppeals] = useState([])
   const [loaded, setLoaded] = useState(false)
-  const [mode, setMode] = useState(null) // null | 'appeal'
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -265,33 +264,31 @@ function ReactionBox({ problem, onDone }) {
         <p className="hint" style={{ margin: 0 }}>
           Апелляция отправлена и ожидает решения проверяющего.
         </p>
-      ) : mode === 'appeal' ? (
-        <div className="field" style={{ marginBottom: 0 }}>
-          <label>Причина апелляции <span className="required-star">*</span></label>
-          <textarea
-            rows={3}
-            placeholder="Кратко объясните, почему вы не согласны с этой проблемой"
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-          />
-          <div className="btn-row" style={{ marginTop: 6 }}>
-            <button className="btn btn-amber" disabled={!comment.trim() || busy} onClick={handleAppeal}>
-              {busy ? 'Отправка…' : 'Отправить апелляцию'}
-            </button>
-            <button className="btn btn-secondary" disabled={busy} onClick={() => setMode(null)}>
-              Отмена
+      ) : (
+        <>
+          <div className="btn-row" style={{ marginBottom: 10 }}>
+            <button className="btn btn-green" disabled={busy} onClick={handleAcknowledge}>
+              ✓ Ознакомлен (согласен)
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="btn-row" style={{ marginBottom: 0 }}>
-          <button className="btn btn-green" disabled={busy} onClick={handleAcknowledge}>
-            ✓ Ознакомлен
-          </button>
-          <button className="btn btn-amber" disabled={busy} onClick={() => setMode('appeal')}>
-            Подать апелляцию
-          </button>
-        </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>
+              Не согласны? Напишите комментарий — после «Сохранить» апелляция уйдёт
+              проверяющему (Маргарите) на рассмотрение
+            </label>
+            <textarea
+              rows={3}
+              placeholder="Ваш комментарий / причина несогласия с проблемой"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
+            <div className="btn-row" style={{ marginTop: 6 }}>
+              <button className="btn" disabled={!comment.trim() || busy} onClick={handleAppeal}>
+                {busy ? 'Сохранение…' : 'Сохранить'}
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
@@ -499,8 +496,8 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       <AttachmentPicker files={files} onFiles={setFiles} disabled={saving} />
 
       <div className="btn-row">
-        <button className="btn" disabled={!canSave} onClick={handleSave}>
-          {saving ? 'Сохранение…' : 'Сохранить'}
+        <button className="btn btn-secondary" disabled={!canSave} onClick={handleSave}>
+          {saving ? 'Отправка…' : 'Отправить ответ проверяющему'}
         </button>
         {showRequiredHint && (
           <span className="hint">Оба поля обязательны для сохранения.</span>
