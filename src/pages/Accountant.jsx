@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment } from '../lib/api'
+import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals } from '../lib/api'
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
-import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS } from '../lib/constants'
+import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS, APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE } from '../lib/constants'
 import { displayAuthor, problemContext, sortQueue } from '../lib/presentation'
 import {
   DASHBOARD_SOURCES,
@@ -20,6 +20,7 @@ export default function Accountant() {
   const [accountantId, setAccountantId] = useState('')
   const [period, setPeriod] = useState('week')
   const [problems, setProblems] = useState([])
+  const [myAppeals, setMyAppeals] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   // Monotonic request id so changing filters quickly can't let a stale
@@ -50,13 +51,17 @@ export default function Accountant() {
         sourceIn: DASHBOARD_SOURCES,
       }),
       fetchChats().catch(() => []),
+      // The accountant's own appeals (any status) — shown as a compact tracker
+      // so they can follow a decision even after the issue leaves the queue.
+      isSupervisor ? Promise.resolve([]) : fetchAppeals().catch(() => []),
     ])
-      .then(([data, chats]) => {
+      .then(([data, chats, appeals]) => {
         if (reqId !== reqRef.current) return
         // prepareDashboard drops AI/false-positives/inactive chats, filters the
         // period and keeps only rows with a resolved accountant.
         const { active } = prepareDashboard({ problems: data, chats, period, now: new Date() })
         setProblems(isSupervisor ? active : keepOwnProblems(active, access))
+        setMyAppeals(isSupervisor ? [] : keepOwnProblems(appeals, access))
       })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))
@@ -118,6 +123,8 @@ export default function Accountant() {
 
       <ErrorMessage error={error} />
 
+      {!isSupervisor && myAppeals.length > 0 && <MyAppeals appeals={myAppeals} />}
+
       {loading ? (
         <Loading />
       ) : problems.length === 0 ? (
@@ -134,6 +141,157 @@ export default function Accountant() {
             <ProblemFeedbackCard key={p.problem_id} problem={p} onSaved={load} />
           ))}
         </>
+      )}
+    </div>
+  )
+}
+
+// Compact tracker of the accountant's own appeals so they can follow a decision
+// after the issue has left the actionable queue. The reviewer's name is never
+// shown (only the decision + their optional comment).
+function MyAppeals({ appeals }) {
+  return (
+    <div className="subbox" style={{ marginBottom: 16 }}>
+      <h4 style={{ marginTop: 0 }}>Мои апелляции</h4>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Проблема</th>
+              <th>Дата</th>
+              <th>Статус</th>
+              <th>Комментарий проверяющего</th>
+            </tr>
+          </thead>
+          <tbody>
+            {appeals.map((a) => (
+              <tr key={a.id}>
+                <td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{a.problem_title || a.problem_id}</td>
+                <td>{formatDate(a.created_at)}</td>
+                <td>
+                  <span className={`badge ${APPEAL_STATUS_BADGE[a.status] || 'badge-gray'}`}>
+                    {APPEAL_STATUS_LABELS[a.status] || a.status}
+                  </span>
+                </td>
+                <td style={{ maxWidth: 260, whiteSpace: 'normal', color: 'var(--muted)' }}>
+                  {a.resolution_comment || '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// The two required accountant reactions on every QA issue (req 3):
+//   «Ознакомлен»       — acknowledge & accept
+//   «Подать апелляцию» — dispute with a short comment
+// A pending appeal disables both actions; a resolved appeal shows the decision.
+function ReactionBox({ problem, onDone }) {
+  const { access } = useAuth()
+  const [appeals, setAppeals] = useState([])
+  const [loaded, setLoaded] = useState(false)
+  const [mode, setMode] = useState(null) // null | 'appeal'
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    fetchAppealsForProblem(problem.problem_id)
+      .then((rows) => setAppeals(rows))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }, [problem.problem_id])
+
+  const pending = appeals.find((a) => a.status === 'pending')
+  const lastResolved = appeals.find((a) => a.status !== 'pending')
+
+  async function handleAcknowledge() {
+    setBusy(true)
+    setError(null)
+    try {
+      await acknowledgeProblem({
+        problemId: problem.problem_id,
+        accountantId: problem.accountant_id,
+        accountantName: problem.accountant_name || access?.full_name,
+      })
+      onDone()
+    } catch (e) {
+      setError(e)
+      setBusy(false)
+    }
+  }
+
+  async function handleAppeal() {
+    const text = comment.trim()
+    if (!text) return
+    setBusy(true)
+    setError(null)
+    try {
+      await submitAppeal({
+        problemId: problem.problem_id,
+        accountantId: problem.accountant_id,
+        accountantName: problem.accountant_name || access?.full_name,
+        comment: text,
+      })
+      onDone()
+    } catch (e) {
+      setError(e)
+      setBusy(false)
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <div className="subbox" style={{ marginBottom: 12 }}>
+      <h4 style={{ marginTop: 0 }}>Ваша реакция</h4>
+
+      {lastResolved && (
+        <p className="hint" style={{ margin: '0 0 8px' }}>
+          Предыдущая апелляция:{' '}
+          <span className={`badge ${APPEAL_STATUS_BADGE[lastResolved.status] || 'badge-gray'}`}>
+            {APPEAL_STATUS_LABELS[lastResolved.status] || lastResolved.status}
+          </span>
+          {lastResolved.resolution_comment ? ` — «${lastResolved.resolution_comment}»` : ''}
+        </p>
+      )}
+
+      <ErrorMessage error={error} />
+
+      {pending ? (
+        <p className="hint" style={{ margin: 0 }}>
+          Апелляция отправлена и ожидает решения проверяющего.
+        </p>
+      ) : mode === 'appeal' ? (
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>Причина апелляции <span className="required-star">*</span></label>
+          <textarea
+            rows={3}
+            placeholder="Кратко объясните, почему вы не согласны с этой проблемой"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <div className="btn-row" style={{ marginTop: 6 }}>
+            <button className="btn btn-amber" disabled={!comment.trim() || busy} onClick={handleAppeal}>
+              {busy ? 'Отправка…' : 'Отправить апелляцию'}
+            </button>
+            <button className="btn btn-secondary" disabled={busy} onClick={() => setMode(null)}>
+              Отмена
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="btn-row" style={{ marginBottom: 0 }}>
+          <button className="btn btn-green" disabled={busy} onClick={handleAcknowledge}>
+            ✓ Ознакомлен
+          </button>
+          <button className="btn btn-amber" disabled={busy} onClick={() => setMode('appeal')}>
+            Подать апелляцию
+          </button>
+        </div>
       )}
     </div>
   )
@@ -306,6 +464,8 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       </div>
 
       {context && <div className="description">{context}</div>}
+
+      <ReactionBox problem={problem} onDone={onSaved} />
 
       {problem.source === 'sona_review' && (
         <SonaComments problem={problem} authorName={access?.full_name} />

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchTasks, createTask, completeTask, reopenTask, deleteTask, fetchAccountants } from '../lib/api'
-import { TASK_TYPES, TASK_TYPE_LABELS, TASK_TYPE_BADGE } from '../lib/constants'
+import { fetchTasks, createTask, setTaskStatus, deleteTask, fetchAccountants } from '../lib/api'
+import {
+  TASK_TYPES,
+  TASK_TYPE_LABELS,
+  TASK_TYPE_BADGE,
+  TASK_STATUS,
+  TASK_STATUS_LABELS,
+} from '../lib/constants'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
 
@@ -77,11 +83,9 @@ export default function Tasks() {
   const pendingCount = tasks.filter((t) => !t.done).length
   const overdueCount = tasks.filter((t) => isPastDue(t)).length
 
-  async function handleToggle(task) {
+  async function handleStatus(task, status) {
     try {
-      const updated = task.done
-        ? await reopenTask(task.id)
-        : await completeTask(task.id, access?.full_name)
+      const updated = await setTaskStatus(task.id, status, access?.full_name)
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
     } catch (e) {
       alert(e.message)
@@ -240,30 +244,48 @@ export default function Tasks() {
               <table>
                 <thead>
                   <tr>
-                    <th style={{ width: 36 }}></th>
+                    <th style={{ width: 130 }}>Статус</th>
                     <th>Тип</th>
                     <th>Клиент</th>
                     {isSupervisor && !filterAccountant && <th>Бухгалтер</th>}
                     <th>Срок</th>
                     <th>Заметка</th>
+                    <th>Создано</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {g.items.map((task) => (
-                    <tr key={task.id} style={{ opacity: task.done ? 0.4 : 1 }}>
+                    <tr key={task.id} style={{ opacity: task.done ? 0.5 : 1 }}>
                       <td>
-                        <input
-                          type="checkbox"
-                          checked={task.done}
-                          onChange={() => handleToggle(task)}
-                          style={{ width: 16, height: 16, cursor: 'pointer' }}
-                        />
+                        <select
+                          value={task.status || (task.done ? TASK_STATUS.done : TASK_STATUS.open)}
+                          onChange={(e) => handleStatus(task, e.target.value)}
+                          style={{ padding: '2px 4px' }}
+                        >
+                          {Object.values(TASK_STATUS).map((s) => (
+                            <option key={s} value={s}>
+                              {TASK_STATUS_LABELS[s]}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td>
                         <span className={`badge ${TASK_TYPE_BADGE[task.task_type] || 'badge-gray'}`}>
                           {TASK_TYPE_LABELS[task.task_type] || task.task_type}
                         </span>
+                        {task.problem_id && (
+                          <>
+                            {' '}
+                            {task.chat_link ? (
+                              <a href={task.chat_link} target="_blank" rel="noreferrer" title="Источник — проблема QA">
+                                QA↗
+                              </a>
+                            ) : (
+                              <span className="hint" title="Создана из проблемы QA">QA</span>
+                            )}
+                          </>
+                        )}
                       </td>
                       <td style={{ maxWidth: 200, whiteSpace: 'normal' }}>
                         <span style={task.done ? { textDecoration: 'line-through' } : {}}>
@@ -282,6 +304,9 @@ export default function Tasks() {
                       </td>
                       <td style={{ color: 'var(--muted)', maxWidth: 180, whiteSpace: 'normal' }}>
                         {task.notes || ''}
+                      </td>
+                      <td style={{ color: 'var(--muted)' }}>
+                        {task.created_at ? fmtDate(task.created_at.slice(0, 10)) : '—'}
                       </td>
                       <td>
                         <button

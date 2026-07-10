@@ -149,6 +149,130 @@ export async function submitReviewAction({ problemId, reviewerName, action, revi
   return record
 }
 
+// ---- Acknowledgements & appeals (accountant reaction loop) -----------------
+//
+// Every QA issue (kk_problems row) can be reacted to by the assigned accountant:
+//   * «Ознакомлен»        → acknowledgeProblem  (seen & accepted)
+//   * «Подать апелляцию»   → submitAppeal        (dispute, status 'pending')
+// Margarita / management then approve or reject each appeal (resolveAppeal).
+// The current reaction is mirrored onto kk_problems.status so the queues and
+// dashboard keep working. See supabase/migrations/0025.
+
+// Mark an issue as seen & accepted. One acknowledgement per problem (idempotent
+// upsert on problem_id); also moves the problem to the `acknowledged` status so
+// it leaves the actionable queue.
+export async function acknowledgeProblem({ problemId, accountantId, accountantName, note }) {
+  const ack = unwrap(
+    await supabase
+      .from('kk_problem_acknowledgements')
+      .upsert(
+        {
+          problem_id: problemId,
+          accountant_id: accountantId || null,
+          accountant_name: accountantName || null,
+          note: note || null,
+          created_at: new Date().toISOString(),
+        },
+        { onConflict: 'problem_id' },
+      )
+      .select()
+      .single(),
+  )
+  await updateProblemStatus(problemId, STATUS.acknowledged)
+  return ack
+}
+
+export async function fetchAcknowledgement(problemId) {
+  const rows = unwrap(
+    await supabase.from('kk_problem_acknowledgements').select('*').eq('problem_id', problemId),
+  )
+  return rows[0] || null
+}
+
+export async function fetchAcknowledgements(filters = {}) {
+  let query = supabase.from('kk_problem_acknowledgements').select('*')
+  if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  return unwrap(await query)
+}
+
+// File an appeal against a QA issue with the accountant's explanation. Moves the
+// problem to `appeal_pending`. A DB partial-unique index guarantees at most one
+// pending appeal per problem (req 9), surfaced here as a friendly error.
+export async function submitAppeal({ problemId, accountantId, accountantName, comment }) {
+  const { data, error } = await supabase
+    .from('kk_problem_appeals')
+    .insert({
+      problem_id: problemId,
+      accountant_id: accountantId || null,
+      accountant_name: accountantName || null,
+      comment,
+    })
+    .select()
+    .single()
+  if (error) {
+    if (error.code === '23505') {
+      throw new Error('По этой проблеме уже есть апелляция на рассмотрении.')
+    }
+    throw new Error(error.message)
+  }
+  await updateProblemStatus(problemId, STATUS.appeal_pending)
+  return data
+}
+
+export async function fetchAppeals(filters = {}) {
+  let query = supabase.from('kk_problem_appeals').select('*').order('created_at', { ascending: false })
+  if (filters.status) query = query.eq('status', filters.status)
+  if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
+  if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  return unwrap(await query)
+}
+
+export async function fetchAppealsForProblem(problemId) {
+  return unwrap(
+    await supabase
+      .from('kk_problem_appeals')
+      .select('*')
+      .eq('problem_id', problemId)
+      .order('created_at', { ascending: false }),
+  )
+}
+
+// Approve or reject an appeal. Approving upholds the accountant (the issue is
+// dismissed and marked a false positive so it drops from dashboard counts, like
+// a reviewer-confirmed non-problem); rejecting keeps the issue active/confirmed.
+export async function resolveAppeal({ appealId, problemId, decision, resolvedBy, resolutionComment }) {
+  const status = decision === 'approved' ? 'approved' : 'rejected'
+  const appeal = unwrap(
+    await supabase
+      .from('kk_problem_appeals')
+      .update({
+        status,
+        resolved_by: resolvedBy || null,
+        resolution_comment: resolutionComment || null,
+        resolved_at: new Date().toISOString(),
+      })
+      .eq('id', appealId)
+      .select()
+      .single(),
+  )
+
+  if (status === 'approved') {
+    unwrap(
+      await supabase
+        .from('kk_problems')
+        .update({
+          status: STATUS.appeal_approved,
+          verdict: 'not_problematic',
+          verdict_at: new Date().toISOString(),
+        })
+        .eq('problem_id', problemId),
+    )
+  } else {
+    await updateProblemStatus(problemId, STATUS.appeal_rejected)
+  }
+  return appeal
+}
+
 // ---- Detection-quality ratings (learning signal) --------------------------
 
 export async function fetchRatings(problemId) {
@@ -279,6 +403,8 @@ export async function fetchTasks(filters = {}) {
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
   if (filters.taskType) query = query.eq('task_type', filters.taskType)
   if (filters.done !== undefined) query = query.eq('done', filters.done)
+  if (filters.status) query = query.eq('status', filters.status)
+  if (filters.problemId) query = query.eq('problem_id', filters.problemId)
   if (filters.clientName) query = query.eq('client_name', filters.clientName)
   return unwrap(await query)
 }
@@ -287,26 +413,31 @@ export async function createTask(task) {
   return unwrap(await supabase.from('kk_tasks').insert(task).select().single())
 }
 
-export async function completeTask(taskId, doneBy) {
+// Move a task between open / in_progress / done, keeping the legacy `done` flag
+// (and its timestamps) consistent with the richer status.
+export async function setTaskStatus(taskId, status, actor) {
+  const done = status === 'done'
   return unwrap(
     await supabase
       .from('kk_tasks')
-      .update({ done: true, done_at: new Date().toISOString(), done_by: doneBy || null })
+      .update({
+        status,
+        done,
+        done_at: done ? new Date().toISOString() : null,
+        done_by: done ? actor || null : null,
+      })
       .eq('id', taskId)
       .select()
       .single(),
   )
 }
 
+export async function completeTask(taskId, doneBy) {
+  return setTaskStatus(taskId, 'done', doneBy)
+}
+
 export async function reopenTask(taskId) {
-  return unwrap(
-    await supabase
-      .from('kk_tasks')
-      .update({ done: false, done_at: null, done_by: null })
-      .eq('id', taskId)
-      .select()
-      .single(),
-  )
+  return setTaskStatus(taskId, 'open')
 }
 
 export async function deleteTask(taskId) {

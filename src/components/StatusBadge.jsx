@@ -9,6 +9,10 @@ const COLOR = {
   [STATUS.explained_accepted]: 'badge-green',
   [STATUS.returned_to_accountant]: 'badge-red',
   [STATUS.auto_resolved]: 'badge-green',
+  [STATUS.acknowledged]: 'badge-green',
+  [STATUS.appeal_pending]: 'badge-amber',
+  [STATUS.appeal_approved]: 'badge-green',
+  [STATUS.appeal_rejected]: 'badge-red',
 }
 
 export default function StatusBadge({ status }) {

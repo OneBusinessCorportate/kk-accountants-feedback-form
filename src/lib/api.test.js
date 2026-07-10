@@ -18,9 +18,18 @@ function builder(table) {
       calls.push({ op: 'insert', table, payload: p })
       return b
     }),
+    upsert: vi.fn((p) => {
+      state.payload = p
+      calls.push({ op: 'upsert', table, payload: p })
+      return b
+    }),
     update: vi.fn((p) => {
       state.payload = p
       calls.push({ op: 'update', table, payload: p })
+      return b
+    }),
+    delete: vi.fn(() => {
+      calls.push({ op: 'delete', table })
       return b
     }),
     // insert(...).select().single() resolves with the row we just wrote.
@@ -36,7 +45,15 @@ vi.mock('./supabaseClient', () => ({
   supabaseConfigError: null,
 }))
 
-import { submitAccountantFeedback, submitReviewAction, rateProblem } from './api'
+import {
+  submitAccountantFeedback,
+  submitReviewAction,
+  rateProblem,
+  acknowledgeProblem,
+  submitAppeal,
+  resolveAppeal,
+  setTaskStatus,
+} from './api'
 
 beforeEach(() => {
   calls.length = 0
@@ -111,6 +128,75 @@ describe('submitReviewAction', () => {
     const insert = calls.find((c) => c.op === 'insert')
     expect(insert.payload.reviewer_name).toBeNull()
     expect(insert.payload.review_comment).toBeNull()
+  })
+})
+
+describe('acknowledgeProblem', () => {
+  it('upserts an acknowledgement then marks the problem acknowledged', async () => {
+    await acknowledgeProblem({ problemId: 'P-1', accountantId: 'a1', accountantName: 'Анна' })
+
+    const ack = calls.find((c) => c.op === 'upsert')
+    expect(ack.table).toBe('kk_problem_acknowledgements')
+    expect(ack.payload.problem_id).toBe('P-1')
+    expect(ack.payload.accountant_id).toBe('a1')
+
+    const update = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(update.payload.status).toBe('acknowledged')
+  })
+})
+
+describe('submitAppeal', () => {
+  it('records the appeal comment then moves the problem to appeal_pending', async () => {
+    await submitAppeal({ problemId: 'P-1', accountantId: 'a1', accountantName: 'Анна', comment: 'не согласен' })
+
+    const insert = calls.find((c) => c.op === 'insert')
+    expect(insert.table).toBe('kk_problem_appeals')
+    expect(insert.payload.comment).toBe('не согласен')
+
+    const update = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(update.payload.status).toBe('appeal_pending')
+  })
+})
+
+describe('resolveAppeal', () => {
+  it('approving marks the appeal approved and dismisses the problem as a false positive', async () => {
+    await resolveAppeal({ appealId: 'ap1', problemId: 'P-1', decision: 'approved', resolvedBy: 'Маргарита' })
+
+    const appealUpd = calls.find((c) => c.op === 'update' && c.table === 'kk_problem_appeals')
+    expect(appealUpd.payload.status).toBe('approved')
+
+    const probUpd = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(probUpd.payload.status).toBe('appeal_approved')
+    expect(probUpd.payload.verdict).toBe('not_problematic')
+  })
+
+  it('rejecting keeps the problem active (appeal_rejected)', async () => {
+    await resolveAppeal({ appealId: 'ap1', problemId: 'P-1', decision: 'rejected' })
+
+    const appealUpd = calls.find((c) => c.op === 'update' && c.table === 'kk_problem_appeals')
+    expect(appealUpd.payload.status).toBe('rejected')
+
+    const probUpd = calls.find((c) => c.op === 'update' && c.table === 'kk_problems')
+    expect(probUpd.payload.status).toBe('appeal_rejected')
+    expect(probUpd.payload.verdict).toBeUndefined()
+  })
+})
+
+describe('setTaskStatus', () => {
+  it('done syncs the legacy done flag + timestamp', async () => {
+    await setTaskStatus('t1', 'done', 'Анна')
+    const upd = calls.find((c) => c.op === 'update' && c.table === 'kk_tasks')
+    expect(upd.payload.status).toBe('done')
+    expect(upd.payload.done).toBe(true)
+    expect(upd.payload.done_by).toBe('Анна')
+  })
+
+  it('a non-done status clears the done flag', async () => {
+    await setTaskStatus('t1', 'in_progress')
+    const upd = calls.find((c) => c.op === 'update' && c.table === 'kk_tasks')
+    expect(upd.payload.status).toBe('in_progress')
+    expect(upd.payload.done).toBe(false)
+    expect(upd.payload.done_at).toBeNull()
   })
 })
 

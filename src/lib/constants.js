@@ -13,6 +13,16 @@ export const STATUS = {
   // the chat was answered after we flagged it. Keeps the row for history while
   // dropping it from the accountant/review queues and dashboard counts.
   auto_resolved: 'auto_resolved',
+  // Accountant reaction loop (migration 0025):
+  //   acknowledged    — accountant clicked «Ознакомлен» (seen & accepted)
+  //   appeal_pending  — accountant filed an appeal, awaiting a decision
+  //   appeal_approved — appeal upheld → issue dismissed (also verdict
+  //                     'not_problematic', so it leaves the dashboard counts)
+  //   appeal_rejected — appeal denied → issue stays active/confirmed
+  acknowledged: 'acknowledged',
+  appeal_pending: 'appeal_pending',
+  appeal_approved: 'appeal_approved',
+  appeal_rejected: 'appeal_rejected',
 }
 
 export const STATUS_LABELS = {
@@ -24,13 +34,19 @@ export const STATUS_LABELS = {
   explained_accepted: 'Объяснено / принято',
   returned_to_accountant: 'Возвращена бухгалтеру',
   auto_resolved: 'Снято автоматически (получен ответ)',
+  acknowledged: 'Ознакомлен',
+  appeal_pending: 'Апелляция на рассмотрении',
+  appeal_approved: 'Апелляция одобрена',
+  appeal_rejected: 'Апелляция отклонена',
 }
 
-// Statuses an accountant is expected to act on.
+// Statuses an accountant is expected to act on. A rejected appeal returns the
+// issue to the accountant (it stays active/confirmed — req 9).
 export const ACCOUNTANT_ACTIONABLE = [
   STATUS.new,
   STATUS.waiting_for_accountant,
   STATUS.returned_to_accountant,
+  STATUS.appeal_rejected,
 ]
 
 // Statuses a reviewer is expected to act on.
@@ -84,9 +100,31 @@ export function roleLabel(role) {
   return ROLE_LABELS[key] || role
 }
 
+// ---- Appeals ---------------------------------------------------------------
+//
+// An accountant disputes a QA issue (kk_problem_appeals.status). Margarita /
+// management then approve or reject it. See migration 0025.
+export const APPEAL_STATUS = {
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+}
+
+export const APPEAL_STATUS_LABELS = {
+  pending: 'На рассмотрении',
+  approved: 'Одобрена',
+  rejected: 'Отклонена',
+}
+
+export const APPEAL_STATUS_BADGE = {
+  pending: 'badge-amber',
+  approved: 'badge-green',
+  rejected: 'badge-red',
+}
+
 // ---- Tasks -----------------------------------------------------------------
 
-export const TASK_TYPES = ['mailing', 'report', 'receipt', 'audit', 'contact', 'other']
+export const TASK_TYPES = ['mailing', 'report', 'receipt', 'audit', 'contact', 'qa', 'other']
 
 export const TASK_TYPE_LABELS = {
   mailing: 'Рассылка',
@@ -94,6 +132,7 @@ export const TASK_TYPE_LABELS = {
   receipt: 'Квитанция',
   audit: 'Аудит',
   contact: 'Связь с клиентом',
+  qa: 'QA-проблема',
   other: 'Другое',
 }
 
@@ -103,5 +142,26 @@ export const TASK_TYPE_BADGE = {
   receipt: 'badge-green',
   audit: 'badge-gray',
   contact: 'badge-blue',
+  qa: 'badge-red',
   other: 'badge-gray',
+}
+
+// Task progress state (migration 0025 added kk_tasks.status). The legacy `done`
+// boolean is kept in sync (done ⇔ status === 'done').
+export const TASK_STATUS = {
+  open: 'open',
+  in_progress: 'in_progress',
+  done: 'done',
+}
+
+export const TASK_STATUS_LABELS = {
+  open: 'Открыта',
+  in_progress: 'В работе',
+  done: 'Выполнена',
+}
+
+export const TASK_STATUS_BADGE = {
+  open: 'badge-blue',
+  in_progress: 'badge-amber',
+  done: 'badge-green',
 }
