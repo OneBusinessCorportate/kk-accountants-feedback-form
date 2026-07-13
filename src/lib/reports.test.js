@@ -6,6 +6,11 @@ import {
   perAccountantReport,
   buildWorkReport,
   isResolved,
+  isCancelledViolation,
+  penaltyOf,
+  summarizeChecks,
+  checksByDay,
+  checksByAccountant,
 } from './reports'
 
 const problems = [
@@ -103,5 +108,69 @@ describe('buildWorkReport', () => {
     expect(r.appeals).toEqual({ total: 3, pending: 1, approved: 1, rejected: 1 })
     expect(r.byAccountant).toHaveLength(2)
     expect(r.issuesByDay).toHaveLength(2)
+  })
+  it('includes checked-chats volume when checks are supplied', () => {
+    const checks = [
+      { chat_agr_no: 'B-1', checking_date: '2026-07-01', accountant_name: 'Анна' },
+      { chat_agr_no: 'B-1', checking_date: '2026-07-02', accountant_name: 'Анна' },
+      { chat_agr_no: 'B-2', checking_date: '2026-07-02', accountant_name: 'Борис' },
+    ]
+    const r = buildWorkReport({ problems, appeals, acks, checks })
+    expect(r.chatsChecked).toBe(2) // distinct chats
+    expect(r.evaluations).toBe(3)
+    expect(r.checksByDay).toHaveLength(2)
+    expect(r.checksByAccountant).toHaveLength(2)
+  })
+})
+
+// ---- Penalties / fines -----------------------------------------------------
+
+const penaltyProblems = [
+  { problem_id: 'p1', accountant_id: 'a1', accountant_name: 'Анна', status: 'appeal_rejected', penalty_amount: 5000, penalty_cancelled: false },
+  { problem_id: 'p2', accountant_id: 'a1', accountant_name: 'Анна', status: 'appeal_approved', penalty_amount: 3000, penalty_cancelled: true },
+  { problem_id: 'p3', accountant_id: 'a1', accountant_name: 'Анна', status: 'new' },
+]
+
+describe('penalties & violations', () => {
+  it('marks an approved-appeal issue as a cancelled violation', () => {
+    expect(isCancelledViolation({ status: 'appeal_approved' })).toBe(true)
+    expect(isCancelledViolation({ status: 'appeal_rejected' })).toBe(false)
+  })
+  it('reads the numeric penalty (0 when absent)', () => {
+    expect(penaltyOf({ penalty_amount: 5000 })).toBe(5000)
+    expect(penaltyOf({})).toBe(0)
+  })
+  it('splits active vs cancelled violations and fines per accountant', () => {
+    const [anna] = perAccountantReport({ problems: penaltyProblems })
+    expect(anna.activeViolations).toBe(2) // p1 + p3
+    expect(anna.cancelledViolations).toBe(1) // p2
+    expect(anna.finesActive).toBe(5000) // p1
+    expect(anna.finesCancelled).toBe(3000) // p2
+  })
+})
+
+// ---- Checked-chats aggregation ---------------------------------------------
+
+describe('checks aggregation', () => {
+  const checks = [
+    { chat_agr_no: 'B-1', checking_date: '2026-07-01T00:00:00Z', accountant_name: 'Анна' },
+    { chat_agr_no: 'B-1', checking_date: '2026-07-02T00:00:00Z', accountant_name: 'Анна' },
+    { chat_agr_no: 'B-2', checking_date: '2026-07-02T00:00:00Z', accountant_name: 'Борис' },
+    { chat_agr_no: null, checking_date: null, accountant_name: null },
+  ]
+  it('counts distinct chats and raw evaluations', () => {
+    expect(summarizeChecks(checks)).toEqual({ chatsChecked: 2, evaluations: 4 })
+  })
+  it('counts distinct chats per day, newest first', () => {
+    expect(checksByDay(checks)).toEqual([
+      { date: '2026-07-02', count: 2 },
+      { date: '2026-07-01', count: 1 },
+    ])
+  })
+  it('counts distinct chats per accountant, most first', () => {
+    const rows = checksByAccountant(checks)
+    expect(rows[0]).toEqual({ accountantName: 'Анна', chatsChecked: 1 })
+    expect(rows.find((r) => r.accountantName === 'Борис').chatsChecked).toBe(1)
+    expect(rows.find((r) => r.accountantName === '— Не распознан —').chatsChecked).toBe(0)
   })
 })

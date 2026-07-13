@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { fetchTasks, createTask, setTaskStatus, deleteTask, fetchAccountants } from '../lib/api'
+import { fetchTasks, createTask, setTaskStatus, postponeTask, deleteTask, fetchAccountants } from '../lib/api'
 import {
   TASK_TYPES,
   TASK_TYPE_LABELS,
   TASK_TYPE_BADGE,
   TASK_STATUS,
   TASK_STATUS_LABELS,
+  TASK_OPEN_STATUSES,
+  PRIORITY_LABELS,
 } from '../lib/constants'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
@@ -14,8 +16,19 @@ function today() {
   return new Date().toISOString().slice(0, 10)
 }
 
+// A task still needs work unless it's done or cancelled.
+function isOpen(task) {
+  return TASK_OPEN_STATUSES.includes(task.status || (task.done ? 'done' : 'open'))
+}
+
+// The date that actually applies — a postponed date overrides the original.
+function effectiveDue(task) {
+  return task.due_date_postponed || task.due_date || null
+}
+
 function isPastDue(task) {
-  return !task.done && !!task.due_date && task.due_date < today()
+  const due = effectiveDue(task)
+  return isOpen(task) && !!due && due < today()
 }
 
 function fmtDate(d) {
@@ -34,7 +47,7 @@ function groupByAccountant(tasks) {
   return [...map.entries()].map(([name, items]) => ({ name, items }))
 }
 
-const BLANK = { task_type: 'mailing', client_name: '', accountant_id: '', accountant_name: '', due_date: '', notes: '' }
+const BLANK = { task_type: 'mailing', client_name: '', accountant_id: '', accountant_name: '', due_date: '', priority: 2, notes: '' }
 
 export default function Tasks() {
   const { access, isSupervisor } = useAuth()
@@ -73,18 +86,29 @@ export default function Tasks() {
   let visible = tasks
   if (filterType) visible = visible.filter((t) => t.task_type === filterType)
   if (filterAccountant) visible = visible.filter((t) => t.accountant_id === filterAccountant)
-  if (!showDone) visible = visible.filter((t) => !t.done)
+  if (!showDone) visible = visible.filter((t) => isOpen(t))
 
   const groups =
     isSupervisor && !filterAccountant
       ? groupByAccountant(visible)
       : [{ name: null, items: visible }]
 
-  const pendingCount = tasks.filter((t) => !t.done).length
+  const pendingCount = tasks.filter((t) => isOpen(t)).length
   const overdueCount = tasks.filter((t) => isPastDue(t)).length
 
   async function handleStatus(task, status) {
     try {
+      // Postponing needs a new date; ask for it and keep the original due date.
+      if (status === TASK_STATUS.postponed) {
+        const date = window.prompt(
+          'Новый срок (ГГГГ-ММ-ДД):',
+          effectiveDue(task) || today(),
+        )
+        if (date === null) return
+        const updated = await postponeTask(task.id, date.trim() || null)
+        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
+        return
+      }
       const updated = await setTaskStatus(task.id, status, access?.full_name)
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)))
     } catch (e) {
@@ -117,6 +141,8 @@ export default function Tasks() {
         accountant_id: form.accountant_id || null,
         accountant_name: form.accountant_name.trim() || null,
         due_date: form.due_date || null,
+        priority: Number(form.priority) || 2,
+        status: 'open',
         notes: form.notes.trim() || null,
         created_by: access?.full_name || null,
       })
@@ -139,12 +165,15 @@ export default function Tasks() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-        <h1 className="page-title" style={{ margin: 0 }}>Задачи</h1>
+        <h1 className="page-title" style={{ margin: 0 }}>Системные задачи бухгалтеров</h1>
         <button className="btn" onClick={showForm ? () => setShowForm(false) : openForm}>
           {showForm ? 'Отмена' : '+ Задача'}
         </button>
       </div>
-      <p className="page-subtitle">Рассылки, отчёты, квитанции, аудит — по клиентам и бухгалтерам.</p>
+      <p className="page-subtitle">
+        Задачи для бухгалтеров: рассылки, отчёты, квитанции, аудит и follow-up по
+        результатам QA. Отдельно от апелляций.
+      </p>
 
       {/* Summary badges */}
       {pendingCount > 0 && (
@@ -182,6 +211,14 @@ export default function Tasks() {
                   </select>
                 </div>
               )}
+              <div className="field">
+                <label>Приоритет</label>
+                <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}>
+                  {Object.entries(PRIORITY_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>{label}</option>
+                  ))}
+                </select>
+              </div>
               <div className="field">
                 <label>Срок</label>
                 <input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
@@ -246,6 +283,7 @@ export default function Tasks() {
                   <tr>
                     <th style={{ width: 130 }}>Статус</th>
                     <th>Тип</th>
+                    <th>Приоритет</th>
                     <th>Клиент</th>
                     {isSupervisor && !filterAccountant && <th>Бухгалтер</th>}
                     <th>Срок</th>
@@ -255,8 +293,11 @@ export default function Tasks() {
                   </tr>
                 </thead>
                 <tbody>
-                  {g.items.map((task) => (
-                    <tr key={task.id} style={{ opacity: task.done ? 0.5 : 1 }}>
+                  {g.items.map((task) => {
+                    const closed = task.done || task.status === 'cancelled'
+                    const due = effectiveDue(task)
+                    return (
+                    <tr key={task.id} style={{ opacity: closed ? 0.5 : 1 }}>
                       <td>
                         <select
                           value={task.status || (task.done ? TASK_STATUS.done : TASK_STATUS.open)}
@@ -287,8 +328,9 @@ export default function Tasks() {
                           </>
                         )}
                       </td>
+                      <td>{PRIORITY_LABELS[task.priority] || PRIORITY_LABELS[2]}</td>
                       <td style={{ maxWidth: 200, whiteSpace: 'normal' }}>
-                        <span style={task.done ? { textDecoration: 'line-through' } : {}}>
+                        <span style={closed ? { textDecoration: 'line-through' } : {}}>
                           {task.client_name || <span style={{ color: 'var(--muted)' }}>—</span>}
                         </span>
                       </td>
@@ -296,9 +338,12 @@ export default function Tasks() {
                         <td>{task.accountant_name || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
                       )}
                       <td>
-                        {task.due_date ? (
+                        {due ? (
                           <span style={{ color: isPastDue(task) ? 'var(--red)' : 'inherit', fontWeight: isPastDue(task) ? 600 : 400 }}>
-                            {fmtDate(task.due_date)}
+                            {fmtDate(due)}
+                            {task.due_date_postponed && (
+                              <span className="hint" title={`Изначально: ${fmtDate(task.due_date)}`}> (отложено)</span>
+                            )}
                           </span>
                         ) : '—'}
                       </td>
@@ -319,7 +364,8 @@ export default function Tasks() {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

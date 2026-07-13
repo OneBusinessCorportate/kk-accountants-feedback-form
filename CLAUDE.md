@@ -171,6 +171,61 @@ false positives), «pending» when something is still open, «none» when Margar
 has no record (then the manual kk_tasks mailing is used as a fallback / override).
 Only the «Рассылка» column changed; «Отчёт»/«Квитанция» still use kk_tasks.
 
+## Accountant reaction loop + Margarita work report (0025 / 0026)
+
+After Margarita/Sona QA, every issue (a `kk_problems` row, source
+`margarita_review`/`sona_review`) is a *ticket sent to the accountant*
+(`status='waiting_for_accountant'` on ingestion). The accountant must react —
+they cannot leave it stateless:
+
+- **«Ознакомлен»** → `acknowledgeProblem()` upserts `kk_problem_acknowledgements`
+  (one per problem, keeps `accountant_id/name` + `created_at` = acknowledged_at)
+  and sets `status='acknowledged'`.
+- **«Подать апелляцию»** → `submitAppeal()` inserts `kk_problem_appeals`
+  (`status='pending'`, the accountant's `comment`) and sets
+  `status='appeal_pending'`. A partial-unique index allows only ONE pending
+  appeal per problem.
+
+Every sent ticket therefore always carries one of: `waiting_for_accountant`,
+`acknowledged`, `appeal_pending`, `appeal_approved`, `appeal_rejected`. The
+accountant's card (`Accountant.jsx` → `ReactionBox`) shows the two buttons, a
+«Мои апелляции» tracker, and any attached fine.
+
+**Appeal review (Margarita/management, `Appeals.jsx`, management-only route).**
+Each appeal shows accountant, client/chat, the original feedback, the fine, the
+appeal text, date and status. `resolveAppeal()`:
+- **approve** → appeal `approved`; problem → `appeal_approved`,
+  `verdict='not_problematic'` (drops from dashboard counts), and the fine is
+  cancelled (`penalty_cancelled=true`, `penalty_cancelled_at`). Saves
+  `resolved_by` / `resolved_at` / `resolution_comment`.
+- **reject** → appeal `rejected`; problem → `appeal_rejected` (stays active),
+  fine stays active. The issue returns to the accountant's actionable queue.
+
+**Penalties / fines (0026).** `kk_problems` gained `penalty_amount`,
+`penalty_cancelled`, `penalty_cancelled_at`. `kk_ingest_problems()` carries
+`mqa_violations.sanction` onto the matching `margarita:<id>` ticket
+(`penalty_amount`), and re-ingestion never un-cancels a fine. Margarita can also
+set/clear a fine from the appeal card (`setProblemPenalty`). All sanctions are 0
+today, so the amount is a capability, but the whole lifecycle is wired.
+
+**Margarita work report (`reports.js` + `Reports.jsx`, management-only).**
+Pure/DB-free aggregation over problems + appeals + acks + her per-chat
+scorecards. `kk_margarita_checks` (0026) is a read-only projection of
+`mqa_evaluations` (one row per checked chat/period, accountant resolved via
+`kk_accountant_aliases`) — the true record of **chats checked** (644 distinct).
+The «Объём работы Маргариты» card shows Проверено чатов / Создано замечаний /
+Получено-Подтверждено-Отклонено апелляций / Ожидают рассмотрения, plus by-day
+and by-accountant breakdowns and per-accountant active/cancelled violations &
+fines. Period pills recompute in Asia/Yerevan (checks filter on `checking_date`,
+issues on `detected_at`, appeals on `created_at`).
+
+**System tasks (`Tasks.jsx` = «Системные задачи бухгалтеров»).** Separate from
+appeals. `kk_tasks` gained `priority` + `due_date_postponed` and the
+`postponed`/`cancelled` states (0026; `open`≈new, `done`≈completed, `done_at`
+doubles as completed_at). A QA follow-up can be spun off an appeal via
+`createTask({ task_type:'qa', problem_id })`. Regular accountants see only their
+own tasks; supervisors see all, grouped by accountant.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a

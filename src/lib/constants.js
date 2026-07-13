@@ -146,22 +146,35 @@ export const TASK_TYPE_BADGE = {
   other: 'badge-gray',
 }
 
-// Task progress state (migration 0025 added kk_tasks.status). The legacy `done`
-// boolean is kept in sync (done ⇔ status === 'done').
+// System-task progress state. Migration 0025 added kk_tasks.status; 0026 added
+// the `postponed` / `cancelled` states so a QA-driven follow-up can be tracked
+// through its whole lifecycle (req 6). The legacy `done` boolean is kept in
+// sync (done ⇔ status === 'done'); `open` is the "new" state and `done` the
+// "completed" one, so old rows keep working.
 export const TASK_STATUS = {
   open: 'open',
   in_progress: 'in_progress',
+  postponed: 'postponed',
   done: 'done',
+  cancelled: 'cancelled',
 }
 
 export const TASK_STATUS_LABELS = {
-  open: 'Открыта',
+  open: 'Новая',
   in_progress: 'В работе',
+  postponed: 'Отложена',
   done: 'Выполнена',
+  cancelled: 'Отменена',
 }
 
 export const TASK_STATUS_BADGE = {
   open: 'badge-blue',
   in_progress: 'badge-amber',
+  postponed: 'badge-gray',
   done: 'badge-green',
+  cancelled: 'badge-red',
 }
+
+// A task still needing work (excluded: done, cancelled). Used for the "open"
+// count and the actionable list.
+export const TASK_OPEN_STATUSES = ['open', 'in_progress', 'postponed']

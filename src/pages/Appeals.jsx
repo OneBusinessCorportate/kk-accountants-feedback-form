@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchAppeals, fetchProblems, resolveAppeal, createTask } from '../lib/api'
+import { fetchAppeals, fetchProblems, resolveAppeal, createTask, setProblemPenalty } from '../lib/api'
 import { APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE, SOURCE_LABELS } from '../lib/constants'
 import { formatDate } from '../lib/presentation'
 import { useAuth } from '../lib/AuthContext'
@@ -135,8 +135,28 @@ function AppealCard({ appeal, problem, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [taskCreated, setTaskCreated] = useState(false)
+  const [penalty, setPenalty] = useState(
+    problem?.penalty_amount != null ? String(problem.penalty_amount) : '',
+  )
+  const [penaltySaved, setPenaltySaved] = useState(false)
 
   const isPending = appeal.status === 'pending'
+  const penaltyCancelled = !!problem?.penalty_cancelled
+  const penaltyAmount = problem?.penalty_amount
+
+  async function savePenalty() {
+    setBusy(true)
+    setError(null)
+    try {
+      await setProblemPenalty({ problemId: appeal.problem_id, amount: penalty.trim() })
+      setPenaltySaved(true)
+      onChanged()
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function decide(decision) {
     setBusy(true)
@@ -225,6 +245,43 @@ function AppealCard({ appeal, problem, onChanged }) {
       <div className="subbox">
         <h4 style={{ marginTop: 0 }}>Апелляция бухгалтера</h4>
         <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{appeal.comment}</p>
+      </div>
+
+      {/* Fine / penalty (req 4). Одобрение апелляции автоматически снимает штраф. */}
+      <div className="subbox">
+        <h4 style={{ marginTop: 0 }}>Штраф</h4>
+        {penaltyAmount ? (
+          <p style={{ margin: '0 0 8px' }}>
+            Текущий штраф:{' '}
+            <b style={penaltyCancelled ? { textDecoration: 'line-through', color: 'var(--muted)' } : {}}>
+              {new Intl.NumberFormat('ru-RU').format(penaltyAmount)}
+            </b>
+            {penaltyCancelled && <span className="badge badge-green" style={{ marginLeft: 8 }}>Снят</span>}
+          </p>
+        ) : (
+          <p className="hint" style={{ margin: '0 0 8px' }}>Штраф не назначен.</p>
+        )}
+        {isPending && (
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Сумма штрафа (одобрение апелляции снимет штраф)</label>
+            <div className="btn-row" style={{ marginTop: 4 }}>
+              <input
+                type="number"
+                min="0"
+                style={{ maxWidth: 160 }}
+                value={penalty}
+                onChange={(e) => {
+                  setPenalty(e.target.value)
+                  setPenaltySaved(false)
+                }}
+                placeholder="0"
+              />
+              <button className="btn btn-secondary btn-sm" disabled={busy} onClick={savePenalty}>
+                {penaltySaved ? 'Сохранено ✓' : 'Сохранить штраф'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {!isPending && (

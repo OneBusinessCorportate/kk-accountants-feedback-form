@@ -458,6 +458,21 @@ function ProblemFeedbackCard({ problem, onSaved }) {
             Обнаружено: <b>{detected}</b>
           </span>
         )}
+        {problem.penalty_amount ? (
+          <span>
+            Штраф:{' '}
+            <b
+              style={
+                problem.penalty_cancelled
+                  ? { textDecoration: 'line-through', color: 'var(--muted)' }
+                  : {}
+              }
+            >
+              {new Intl.NumberFormat('ru-RU').format(problem.penalty_amount)}
+            </b>
+            {problem.penalty_cancelled && ' (снят)'}
+          </span>
+        ) : null}
       </div>
 
       {context && <div className="description">{context}</div>}

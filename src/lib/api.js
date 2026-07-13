@@ -41,6 +41,19 @@ export async function fetchMailings() {
   )
 }
 
+// Margarita's per-chat quality scorecards (mqa_evaluations), the true record of
+// how many chats she actually checked. Exposed read-only via the
+// kk_margarita_checks view (migration 0026). One row per checked chat/period
+// with the resolved accountant, powering «Объём работы Маргариты» (chats
+// checked, by day / by accountant).
+export async function fetchMargaritaChecks() {
+  return unwrap(
+    await supabase
+      .from('kk_margarita_checks')
+      .select('chat_agr_no, checking_date, quality_band, accountant_name, accountant_id'),
+  )
+}
+
 export async function fetchProblemById(problemId) {
   return unwrap(
     await supabase.from('kk_problems').select('*').eq('problem_id', problemId).single(),
@@ -257,6 +270,9 @@ export async function resolveAppeal({ appealId, problemId, decision, resolvedBy,
   )
 
   if (status === 'approved') {
+    // Upholding the appeal dismisses the issue (marked a false positive so it
+    // drops from dashboard counts) AND cancels any fine attached to the ticket
+    // (req 4). Rejecting keeps both the issue and the fine active (req 4/5).
     unwrap(
       await supabase
         .from('kk_problems')
@@ -264,6 +280,8 @@ export async function resolveAppeal({ appealId, problemId, decision, resolvedBy,
           status: STATUS.appeal_approved,
           verdict: 'not_problematic',
           verdict_at: new Date().toISOString(),
+          penalty_cancelled: true,
+          penalty_cancelled_at: new Date().toISOString(),
         })
         .eq('problem_id', problemId),
     )
@@ -271,6 +289,25 @@ export async function resolveAppeal({ appealId, problemId, decision, resolvedBy,
     await updateProblemStatus(problemId, STATUS.appeal_rejected)
   }
   return appeal
+}
+
+// Set (or clear) the fine attached to a QA ticket. Recording a new amount also
+// re-activates it (penalty_cancelled = false). Used by Margarita when a
+// violation carries a sanction that wasn't imported automatically.
+export async function setProblemPenalty({ problemId, amount }) {
+  const value = amount === '' || amount === null || amount === undefined ? null : Number(amount)
+  return unwrap(
+    await supabase
+      .from('kk_problems')
+      .update({
+        penalty_amount: value,
+        penalty_cancelled: false,
+        penalty_cancelled_at: null,
+      })
+      .eq('problem_id', problemId)
+      .select()
+      .single(),
+  )
 }
 
 // ---- Detection-quality ratings (learning signal) --------------------------
@@ -413,8 +450,9 @@ export async function createTask(task) {
   return unwrap(await supabase.from('kk_tasks').insert(task).select().single())
 }
 
-// Move a task between open / in_progress / done, keeping the legacy `done` flag
-// (and its timestamps) consistent with the richer status.
+// Move a task between open / in_progress / postponed / done / cancelled,
+// keeping the legacy `done` flag (and its completion timestamps) consistent
+// with the richer status. `done_at` doubles as the required completed_at.
 export async function setTaskStatus(taskId, status, actor) {
   const done = status === 'done'
   return unwrap(
@@ -426,6 +464,19 @@ export async function setTaskStatus(taskId, status, actor) {
         done_at: done ? new Date().toISOString() : null,
         done_by: done ? actor || null : null,
       })
+      .eq('id', taskId)
+      .select()
+      .single(),
+  )
+}
+
+// Postpone a task to a new due date (its original due_date is preserved). Moves
+// the task into the `postponed` state.
+export async function postponeTask(taskId, newDueDate) {
+  return unwrap(
+    await supabase
+      .from('kk_tasks')
+      .update({ status: 'postponed', done: false, due_date_postponed: newDueDate || null })
       .eq('id', taskId)
       .select()
       .single(),

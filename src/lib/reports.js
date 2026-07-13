@@ -58,9 +58,23 @@ export function countByDay(rows = [], dateField = 'created_at') {
     .sort((a, b) => (a.date < b.date ? 1 : -1))
 }
 
-// One row per accountant with their QA issue / reaction / appeal counts and the
-// current status of each of their issues (req 2). Appeals are attributed through
-// the problem they dispute, so counts stay consistent with the issue list.
+// A violation is "cancelled" once its appeal was approved (the issue is
+// dismissed). Everything else is still an active violation.
+export function isCancelledViolation(problem) {
+  return problem.status === 'appeal_approved'
+}
+
+// The fine attached to a ticket (0 when none). Cancelled once the appeal is
+// approved (penalty_cancelled) — kept as a number for summing.
+export function penaltyOf(problem) {
+  const n = Number(problem.penalty_amount)
+  return Number.isFinite(n) ? n : 0
+}
+
+// One row per accountant with their QA issue / reaction / appeal counts, the
+// current status of each issue (req 2), and their violation + fine totals
+// (active vs cancelled-after-approved-appeal — req 5). Appeals are attributed
+// through the problem they dispute, so counts stay consistent with the list.
 export function perAccountantReport({ problems = [], appeals = [], acks = [] } = {}) {
   const ackSet = new Set(acks.map((a) => a.problem_id))
   const appealsByProblem = groupAppealsByProblem(appeals)
@@ -79,6 +93,10 @@ export function perAccountantReport({ problems = [], appeals = [], acks = [] } =
         approved: 0,
         rejected: 0,
         pending: 0,
+        activeViolations: 0,
+        cancelledViolations: 0,
+        finesActive: 0,
+        finesCancelled: 0,
         items: [],
       })
     }
@@ -86,6 +104,16 @@ export function perAccountantReport({ problems = [], appeals = [], acks = [] } =
     row.issues += 1
     if (!isResolved(p.status)) row.open += 1
     if (ackSet.has(p.problem_id) || p.status === 'acknowledged') row.reviewed += 1
+
+    const cancelled = isCancelledViolation(p)
+    if (cancelled) row.cancelledViolations += 1
+    else row.activeViolations += 1
+
+    const fine = penaltyOf(p)
+    if (fine > 0) {
+      if (cancelled || p.penalty_cancelled) row.finesCancelled += fine
+      else row.finesActive += fine
+    }
 
     const pa = appealsByProblem.get(p.problem_id) || []
     for (const a of pa) {
@@ -102,22 +130,72 @@ export function perAccountantReport({ problems = [], appeals = [], acks = [] } =
       source: p.source,
       client_name: p.client_name || null,
       appeals: pa.length,
+      penalty_amount: fine || null,
+      penalty_cancelled: !!p.penalty_cancelled,
     })
   }
 
   return [...map.values()].sort((a, b) => b.issues - a.issues)
 }
 
-// Top-level workload figures for Margarita's work report (req 1). `problems`
+// ---- Margarita's checked-chats volume (from kk_margarita_checks) -----------
+//
+// mqa_evaluations rows: one per chat checked per period. "Chats checked" is the
+// count of DISTINCT chats; evaluations is the raw row count.
+
+export function summarizeChecks(checks = []) {
+  const chats = new Set()
+  for (const c of checks) if (c.chat_agr_no) chats.add(c.chat_agr_no)
+  return { chatsChecked: chats.size, evaluations: checks.length }
+}
+
+// Distinct chats checked per calendar day (of checking_date), newest first.
+export function checksByDay(checks = []) {
+  const map = new Map()
+  for (const c of checks) {
+    const day = c.checking_date ? String(c.checking_date).slice(0, 10) : null
+    if (!day) continue
+    if (!map.has(day)) map.set(day, new Set())
+    if (c.chat_agr_no) map.get(day).add(c.chat_agr_no)
+  }
+  return [...map.entries()]
+    .map(([date, set]) => ({ date, count: set.size }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+}
+
+// Distinct chats checked per accountant, most first.
+export function checksByAccountant(checks = []) {
+  const map = new Map()
+  for (const c of checks) {
+    const name = c.accountant_name || '— Не распознан —'
+    if (!map.has(name)) map.set(name, new Set())
+    if (c.chat_agr_no) map.get(name).add(c.chat_agr_no)
+  }
+  return [...map.entries()]
+    .map(([accountantName, set]) => ({ accountantName, chatsChecked: set.size }))
+    .sort((a, b) => b.chatsChecked - a.chatsChecked)
+}
+
+// Top-level workload figures for Margarita's work report (req 1/2). `problems`
 // should already be scoped to her review source(s); `appeals`/`acks` are the
-// slices that dispute / acknowledge those issues.
-export function buildWorkReport({ problems = [], appeals = [], acks = [] } = {}) {
+// slices that dispute / acknowledge those issues; `checks` are her per-chat
+// scorecards (kk_margarita_checks) scoped to the same period. Everything is
+// derived — no stats table.
+export function buildWorkReport({ problems = [], appeals = [], acks = [], checks = [] } = {}) {
+  const byAccountant = perAccountantReport({ problems, appeals, acks })
+  const { chatsChecked, evaluations } = summarizeChecks(checks)
   return {
+    chatsChecked,
+    evaluations,
     issuesCreated: problems.length,
     acknowledged: acks.length,
     appeals: summarizeAppeals(appeals),
-    byAccountant: perAccountantReport({ problems, appeals, acks }),
+    finesActive: byAccountant.reduce((s, r) => s + r.finesActive, 0),
+    finesCancelled: byAccountant.reduce((s, r) => s + r.finesCancelled, 0),
+    byAccountant,
     issuesByDay: countByDay(problems, 'detected_at'),
     appealsByDay: countByDay(appeals, 'created_at'),
+    checksByDay: checksByDay(checks),
+    checksByAccountant: checksByAccountant(checks),
   }
 }

@@ -70,8 +70,13 @@ export default function Dashboard() {
   )
 
   const today = localToday()
-  const openTasks = tasks.filter((t) => !t.done)
-  const overdueTasks = openTasks.filter((t) => t.due_date && t.due_date < today)
+  // Open = still needs work; a cancelled task (done=false, status='cancelled')
+  // is finished, so it must not count as open.
+  const openTasks = tasks.filter((t) => !t.done && t.status !== 'cancelled')
+  const overdueTasks = openTasks.filter((t) => {
+    const due = t.due_date_postponed || t.due_date
+    return due && due < today
+  })
 
   const selected = active ? CATEGORIES.find((c) => c.key === active) : null
   const list = selected ? selected.sel(data) : []
