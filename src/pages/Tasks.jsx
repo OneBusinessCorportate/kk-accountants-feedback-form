@@ -100,9 +100,16 @@ export default function Tasks() {
   const pendingCount = tasks.filter((t) => isOpen(t)).length
   const overdueCount = tasks.filter((t) => isPastDue(t)).length
 
-  // Auto-generated «Задачи:» message (req 3). Recomputed from the visible tasks,
-  // so it updates the moment any status changes.
-  const message = useMemo(() => buildTaskMessage(visible), [visible])
+  // Auto-generated «Задачи:» message (req 3). Includes EVERY task — done (🟢),
+  // in process (⭕) and not done (🔴) — regardless of the «показать выполненные»
+  // toggle, so marking a task done never removes it from the message. Respects
+  // only the type / accountant filters, and updates the moment a status changes.
+  const message = useMemo(() => {
+    let list = tasks
+    if (filterType) list = list.filter((t) => t.task_type === filterType)
+    if (filterAccountant) list = list.filter((t) => t.accountant_id === filterAccountant)
+    return buildTaskMessage(list)
+  }, [tasks, filterType, filterAccountant])
 
   async function copyMessage() {
     try {
