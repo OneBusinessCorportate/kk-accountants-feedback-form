@@ -16,10 +16,10 @@ import { Loading, ErrorMessage } from '../components/States'
 // Columns shown as checkmark cells — the "Maggie's file" columns
 const CHECK_TYPES = ['mailing', 'report', 'receipt']
 
-// Predefined task titles offered directly in the table (req 1). Picking one
-// creates a task with that exact name; «Другое» opens a free-text input.
-const PRESET_TASKS = ['հաշիվ գրել', 'փոխանցում անել']
-const OTHER_OPTION = '__other__'
+// Predefined tasks offered as their own columns in the table (req 1). Clicking
+// «+» creates a task with that exact name; the «Другое» column opens a
+// free-text input for a manually typed task.
+const PRESET_TASKS = ['Выписать счёт', 'Сделать перевод']
 
 const RESOLVED = new Set(['fixed', 'explained_accepted'])
 
@@ -137,12 +137,12 @@ export default function Clients() {
     return { id: null, name: null }
   }
 
-  // Create a free-form named task for a client (req 1). The title IS the name
-  // the user picked («հաշիվ գրել» / «փোখানցум անել» / their own text).
+  // Create a named task for a client (req 1). The title IS the name — a preset
+  // column («Выписать счёт» / «Сделать перевод») or the user's own «Другое» text.
   async function createNamedTask(client, title) {
     const name = (title || '').trim()
     if (!name) return
-    const key = `${client.name}:named`
+    const key = `${client.name}:${name}`
     setCreating(key)
     try {
       const who = taskAssignee(client)
@@ -163,22 +163,46 @@ export default function Clients() {
     }
   }
 
-  function handlePickTask(client, value) {
-    if (!value) return
-    if (value === OTHER_OPTION) {
-      setOtherText('')
-      setOtherFor(client.key)
-      return
-    }
-    createNamedTask(client, value)
-  }
-
   async function submitOther(client) {
     const text = otherText.trim()
     if (!text) return
     await createNamedTask(client, text)
     setOtherFor(null)
     setOtherText('')
+  }
+
+  // A preset task already created for this client (matched by its exact title).
+  function presetTask(client, title) {
+    return client.tasks.find((t) => (t.title || '').trim() === title)
+  }
+
+  // Cell for a preset-task column: show the task's status once it exists
+  // (✓ done / ○ in work), otherwise a «+» button that creates it.
+  function presetCell(client, title) {
+    const task = presetTask(client, title)
+    if (task) {
+      const done = task.done || task.status === 'done'
+      return done ? (
+        <span style={{ color: 'var(--green)', fontWeight: 700, fontSize: 16 }}>✓</span>
+      ) : (
+        <span style={{ color: 'var(--amber)', fontSize: 16 }}>○</span>
+      )
+    }
+    const busy = creating === `${client.name}:${title}`
+    return (
+      <button
+        className="btn btn-secondary btn-sm"
+        disabled={busy}
+        onClick={(e) => {
+          e.stopPropagation()
+          createNamedTask(client, title)
+        }}
+        title={`Создать: ${title}`}
+        style={{ padding: '2px 8px', fontSize: 13, color: 'var(--muted)' }}
+      >
+        {busy ? '...' : '+'}
+      </button>
+    )
   }
 
   function taskCell(client, type) {
@@ -275,7 +299,12 @@ export default function Clients() {
                         {TASK_TYPE_LABELS[t]}
                       </th>
                     ))}
-                    <th style={{ textAlign: 'center' }}>Задача</th>
+                    {PRESET_TASKS.map((t) => (
+                      <th key={t} style={{ textAlign: 'center' }}>
+                        {t}
+                      </th>
+                    ))}
+                    <th style={{ textAlign: 'center' }}>Другое</th>
                     <th>Проблемные чаты</th>
                   </tr>
                 </thead>
@@ -312,6 +341,11 @@ export default function Clients() {
                               {taskCell(c, t)}
                             </td>
                           ))}
+                          {PRESET_TASKS.map((t) => (
+                            <td key={t} style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                              {presetCell(c, t)}
+                            </td>
+                          ))}
                           <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                             {otherFor === c.key ? (
                               <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
@@ -328,7 +362,7 @@ export default function Clients() {
                                 />
                                 <button
                                   className="btn btn-sm"
-                                  disabled={creating === `${c.name}:named`}
+                                  disabled={creating === `${c.name}:${otherText.trim()}`}
                                   onClick={() => submitOther(c)}
                                   style={{ padding: '2px 8px' }}
                                 >
@@ -343,24 +377,17 @@ export default function Clients() {
                                 </button>
                               </div>
                             ) : (
-                              <select
-                                value=""
-                                disabled={creating === `${c.name}:named`}
-                                onChange={(e) => {
-                                  handlePickTask(c, e.target.value)
-                                  e.target.value = ''
+                              <button
+                                className="btn btn-secondary btn-sm"
+                                onClick={() => {
+                                  setOtherText('')
+                                  setOtherFor(c.key)
                                 }}
-                                title="Добавить задачу"
-                                style={{ fontSize: 13, padding: '2px 6px', color: 'var(--muted)' }}
+                                title="Добавить свою задачу"
+                                style={{ padding: '2px 8px', fontSize: 13, color: 'var(--muted)' }}
                               >
-                                <option value="">+ задача</option>
-                                {PRESET_TASKS.map((t) => (
-                                  <option key={t} value={t}>
-                                    {t}
-                                  </option>
-                                ))}
-                                <option value={OTHER_OPTION}>Другое…</option>
-                              </select>
+                                +
+                              </button>
                             )}
                           </td>
                           <td>
@@ -387,7 +414,7 @@ export default function Clients() {
                         {isExpanded && (
                           <tr>
                             <td
-                              colSpan={5 + CHECK_TYPES.length}
+                              colSpan={5 + CHECK_TYPES.length + PRESET_TASKS.length}
                               style={{ background: 'var(--bg)', padding: '10px 16px' }}
                             >
                               {c.problems.map((p) => (
