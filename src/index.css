@@ -555,3 +555,97 @@ tbody tr:last-child td {
 .attachments-chip { display: inline-flex; align-items: center; gap: 6px; background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 999px; padding: 2px 10px; font-size: 12px; }
 .attachments-remove { border: none; background: none; cursor: pointer; color: #9ca3af; padding: 0; font-size: 12px; }
 .attachments-remove:hover { color: #ef4444; }
+
+/* ---- Sona marks (per-accountant remarks with an ⓘ detail popover) ---- */
+.mark-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+}
+.mark-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.mark-row:first-child {
+  border-top: none;
+}
+.mark-dismissed {
+  opacity: 0.6;
+}
+.mark-body {
+  flex: 1;
+  min-width: 0;
+}
+.mark-title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+/* The ⓘ button + its hover/focus popover carrying the mistake detail. */
+.info {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.info-btn {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  font-style: italic;
+  line-height: 1;
+  cursor: help;
+  flex: none;
+}
+.info-btn:hover,
+.info-btn:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+  outline: none;
+}
+.info-tip {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  z-index: 20;
+  width: max-content;
+  max-width: 340px;
+  padding: 10px 12px;
+  background: var(--text);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.45;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(16, 24, 40, 0.18);
+  white-space: pre-wrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.info:hover .info-tip,
+.info-btn:focus-visible + .info-tip {
+  opacity: 1;
+  visibility: visible;
+}
+@media (max-width: 640px) {
+  .info-tip {
+    left: 0;
+    top: calc(100% + 8px);
+    transform: none;
+    max-width: 80vw;
+  }
+}

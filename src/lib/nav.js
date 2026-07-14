@@ -9,6 +9,7 @@ export const NAV_LINKS = [
   { to: '/accounting', label: 'Отчётность', manageOnly: false },
   { to: '/review', label: 'Проверка', manageOnly: true },
   { to: '/appeals', label: 'Апелляции', manageOnly: true },
+  { to: '/sona-marks', label: 'Оценки Соны', manageOnly: true },
   { to: '/reports', label: 'Отчёты', manageOnly: true },
   { to: '/qa-stats', label: 'QA Точность', manageOnly: true },
   { to: '/admin', label: 'Админ', manageOnly: true },
