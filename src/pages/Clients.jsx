@@ -108,14 +108,17 @@ export default function Clients() {
     ? clients.filter((c) => mailingState(c) !== 'done')
     : clients
 
-  async function handleQuickCreate(clientName, type) {
-    const key = `${clientName}:${type}`
+  async function handleQuickCreate(client, type) {
+    const key = `${client.name}:${type}`
     setCreating(key)
     try {
+      const who = taskAssignee(client)
       const created = await createTask({
         task_type: type,
-        title: `${TASK_TYPE_LABELS[type]} — ${clientName}`,
-        client_name: clientName,
+        title: `${TASK_TYPE_LABELS[type]} — ${client.name}`,
+        client_name: client.name,
+        accountant_id: who.id,
+        accountant_name: who.name,
         created_by: access?.full_name || null,
       })
       setTasks((prev) => [created, ...prev])
@@ -127,13 +130,16 @@ export default function Clients() {
   }
 
   // The accountant a new task should be attributed to, so it shows up in that
-  // person's «Задачи». Prefer the client's own resolved accountant; otherwise
-  // the current user (regular accountants work their own clients), leaving it
-  // unassigned only for supervisors with no owner on record.
+  // person's «Задачи». A regular accountant only ever sees their own clients, so
+  // the task is theirs — assign it to them directly (their «Задачи» is filtered
+  // by exactly this id). A supervisor sees everyone's tasks, so attribute it to
+  // the client's resolved accountant when known, otherwise leave it unassigned.
   function taskAssignee(client) {
+    if (!isSupervisor) {
+      return { id: access?.employee_id || null, name: access?.full_name || null }
+    }
     const owned = client.problems.find((p) => p.accountant_id)
     if (owned) return { id: owned.accountant_id, name: owned.accountant_name || null }
-    if (!isSupervisor) return { id: access?.employee_id || null, name: access?.full_name || null }
     return { id: null, name: null }
   }
 
@@ -222,7 +228,7 @@ export default function Clients() {
         disabled={busy}
         onClick={(e) => {
           e.stopPropagation()
-          handleQuickCreate(client.name, type)
+          handleQuickCreate(client, type)
         }}
         title={`Создать: ${TASK_TYPE_LABELS[type]}`}
         style={{ padding: '2px 8px', fontSize: 13, color: 'var(--muted)' }}

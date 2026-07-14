@@ -12,7 +12,10 @@ function builder(table) {
     in: vi.fn(() => b),
     not: vi.fn(() => b),
     gte: vi.fn(() => b),
-    or: vi.fn(() => b),
+    or: vi.fn((clause) => {
+      calls.push({ op: 'or', table, clause })
+      return b
+    }),
     insert: vi.fn((p) => {
       state.payload = p
       calls.push({ op: 'insert', table, payload: p })
@@ -53,6 +56,7 @@ import {
   submitAppeal,
   resolveAppeal,
   setTaskStatus,
+  fetchTasks,
 } from './api'
 
 beforeEach(() => {
@@ -197,6 +201,20 @@ describe('setTaskStatus', () => {
     expect(upd.payload.status).toBe('in_progress')
     expect(upd.payload.done).toBe(false)
     expect(upd.payload.done_at).toBeNull()
+  })
+})
+
+describe('fetchTasks', () => {
+  it('mine filter matches tasks assigned-to OR created-by the accountant', async () => {
+    await fetchTasks({ mine: { accountantId: 'emp-1', createdBy: 'Olya Hakobyan' } })
+    const orCall = calls.find((c) => c.op === 'or' && c.table === 'kk_tasks')
+    expect(orCall.clause).toBe('accountant_id.eq.emp-1,created_by.eq."Olya Hakobyan"')
+  })
+
+  it('mine filter still works when only created_by is known', async () => {
+    await fetchTasks({ mine: { accountantId: null, createdBy: 'Olya Hakobyan' } })
+    const orCall = calls.find((c) => c.op === 'or' && c.table === 'kk_tasks')
+    expect(orCall.clause).toBe('created_by.eq."Olya Hakobyan"')
   })
 })
 

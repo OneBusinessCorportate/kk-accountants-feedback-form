@@ -67,7 +67,9 @@ export default function Tasks() {
 
   const load = useCallback(() => {
     setLoading(true)
-    const filters = isSupervisor ? {} : { accountantId: access?.employee_id }
+    const filters = isSupervisor
+      ? {}
+      : { mine: { accountantId: access?.employee_id, createdBy: access?.full_name } }
     Promise.all([fetchTasks(filters), isSupervisor ? fetchAccountants() : Promise.resolve([])])
       .then(([t, a]) => { setTasks(t); setAccountants(a) })
       .catch(setError)

@@ -438,6 +438,15 @@ export async function addSonaComment(problemId, body, author) {
 export async function fetchTasks(filters = {}) {
   let query = supabase.from('kk_tasks').select('*').order('created_at', { ascending: false })
   if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  // A regular accountant's own tasks: assigned to them OR created by them. This
+  // still surfaces tasks created from the Клиенты page before an owner was
+  // stamped (accountant_id null) as long as created_by is their name.
+  if (filters.mine) {
+    const clauses = []
+    if (filters.mine.accountantId) clauses.push(`accountant_id.eq.${filters.mine.accountantId}`)
+    if (filters.mine.createdBy) clauses.push(`created_by.eq."${filters.mine.createdBy}"`)
+    if (clauses.length) query = query.or(clauses.join(','))
+  }
   if (filters.taskType) query = query.eq('task_type', filters.taskType)
   if (filters.done !== undefined) query = query.eq('done', filters.done)
   if (filters.status) query = query.eq('status', filters.status)
