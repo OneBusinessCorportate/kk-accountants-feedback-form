@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchTasks, createTask, setTaskStatus, postponeTask, deleteTask, fetchAccountants } from '../lib/api'
 import {
   TASK_TYPES,
@@ -9,6 +9,7 @@ import {
   TASK_OPEN_STATUSES,
   PRIORITY_LABELS,
 } from '../lib/constants'
+import { buildTaskMessage, TASK_PROGRESS, taskStatusOf } from '../lib/taskMessage'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
 
@@ -62,6 +63,7 @@ export default function Tasks() {
   const [form, setForm] = useState(BLANK)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  const [copied, setCopied] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -95,6 +97,21 @@ export default function Tasks() {
 
   const pendingCount = tasks.filter((t) => isOpen(t)).length
   const overdueCount = tasks.filter((t) => isPastDue(t)).length
+
+  // Auto-generated «Задачи:» message (req 3). Recomputed from the visible tasks,
+  // so it updates the moment any status changes.
+  const message = useMemo(() => buildTaskMessage(visible), [visible])
+
+  async function copyMessage() {
+    try {
+      await navigator.clipboard.writeText(message)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard may be unavailable (permissions / non-secure context) — the
+      // textarea is still selectable, so this is a best-effort convenience.
+    }
+  }
 
   async function handleStatus(task, status) {
     try {
@@ -263,6 +280,36 @@ export default function Tasks() {
         </label>
       </div>
 
+      {/* Auto-generated message from task statuses (req 3). Updates live as
+          statuses change; one line per visible task with 🟢 / ⭕ / 🔴. */}
+      {message && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div className="section-label" style={{ margin: 0 }}>Сообщение по задачам</div>
+            <button className="btn btn-secondary btn-sm" onClick={copyMessage}>
+              {copied ? 'Скопировано ✓' : 'Копировать'}
+            </button>
+          </div>
+          <textarea
+            readOnly
+            value={message}
+            onFocus={(e) => e.target.select()}
+            rows={Math.min(12, message.split('\n').length)}
+            style={{
+              width: '100%',
+              fontFamily: 'inherit',
+              fontSize: 14,
+              lineHeight: 1.6,
+              resize: 'vertical',
+              padding: 8,
+            }}
+          />
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+            🟢 выполнено · ⭕ в процессе · 🔴 не выполнено
+          </div>
+        </div>
+      )}
+
       <ErrorMessage error={error} />
 
       {loading ? (
@@ -299,6 +346,31 @@ export default function Tasks() {
                     return (
                     <tr key={task.id} style={{ opacity: closed ? 0.5 : 1 }}>
                       <td>
+                        {/* Clear three-state control (req 2): 🟢 done · ⭕ in
+                            process · 🔴 not done. The dropdown below keeps the
+                            full lifecycle (отложить / отменить). */}
+                        <div style={{ display: 'flex', gap: 3, marginBottom: 4 }}>
+                          {TASK_PROGRESS.map((p) => {
+                            const on = taskStatusOf(task) === p.status
+                            return (
+                              <button
+                                key={p.status}
+                                className="btn btn-sm"
+                                onClick={() => handleStatus(task, p.status)}
+                                title={p.label}
+                                style={{
+                                  padding: '2px 6px',
+                                  lineHeight: 1.1,
+                                  opacity: on ? 1 : 0.35,
+                                  border: on ? '2px solid var(--accent, #2563eb)' : '1px solid var(--border, #ddd)',
+                                  background: on ? 'var(--bg, #fff)' : 'transparent',
+                                }}
+                              >
+                                {p.emoji}
+                              </button>
+                            )
+                          })}
+                        </div>
                         <select
                           value={task.status || (task.done ? TASK_STATUS.done : TASK_STATUS.open)}
                           onChange={(e) => handleStatus(task, e.target.value)}

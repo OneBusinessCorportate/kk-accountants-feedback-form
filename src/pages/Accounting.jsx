@@ -858,6 +858,21 @@ export default function Accounting() {
     emptyTotals()
   ), [companyRows])
 
+  // Reconciliation between ТаксСервис and АрмСофт (req 4). We do NOT sum the two
+  // systems — instead we show their difference (ТаксСервис − АрмСофт) per metric,
+  // which surfaces what does not match. A non-zero value is a discrepancy.
+  const diffTotals = useMemo(() => companyRows.reduce(
+    (acc, r) => ({
+      invoices: acc.invoices + (r.taxservice.invoices - r.armsoft.invoices),
+      reports: acc.reports + (r.taxservice.reports - r.armsoft.reports),
+      applications: acc.applications + (r.taxservice.applications - r.armsoft.applications),
+      balance: acc.balance + (r.taxservice.balance - r.armsoft.balance),
+    }),
+    emptyTotals()
+  ), [companyRows])
+  const showDiff = source === 'all'
+  const fmtDiff = (n) => (n > 0 ? `+${n}` : String(n))
+
   // Companies with activity data that aren't formally registered in ob_accounting_companies.
   // Uses current filtered activities so managers can scope the gap check by date/accountant.
   const orphanActivities = useMemo(() => {
@@ -939,7 +954,6 @@ export default function Accounting() {
           <select value={source} onChange={e => setSource(e.target.value)}
             className="border border-slate-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-400">
             <option value="all">Все системы</option>
-            <option value="base">База</option>
             <option value="armsoft">АрмСофт</option>
             <option value="taxservice">ТаксСервис</option>
           </select>
@@ -966,14 +980,14 @@ export default function Accounting() {
 
         {/* KPI cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <KpiCard label="Выписано инвойсов" value={kpi.invoices.toLocaleString('ru-RU')} icon="🧾" accent="bg-emerald-50 text-emerald-600"
-            sub={source !== 'all' ? SRC_LABEL[source] : 'все системы'} />
-          <KpiCard label="Сдано отчётности" value={kpi.reports.toLocaleString('ru-RU')} icon="📋" accent="bg-violet-50 text-violet-600"
-            sub={source !== 'all' ? SRC_LABEL[source] : 'все системы'} />
-          <KpiCard label="Подано заявлений" value={kpi.applications.toLocaleString('ru-RU')} icon="📝" accent="bg-amber-50 text-amber-600"
-            sub={source !== 'all' ? SRC_LABEL[source] : 'все системы'} />
-          <KpiCard label="Изменений остатков" value={kpi.balance.toLocaleString('ru-RU')} icon="⚖️" accent="bg-rose-50 text-rose-600"
-            sub={source !== 'all' ? SRC_LABEL[source] : 'все системы'} />
+          <KpiCard label={showDiff ? 'Разница: инвойсы' : 'Выписано инвойсов'} value={showDiff ? fmtDiff(diffTotals.invoices) : kpi.invoices.toLocaleString('ru-RU')} icon="🧾" accent="bg-emerald-50 text-emerald-600"
+            sub={showDiff ? 'ТаксСервис − АрмСофт' : SRC_LABEL[source]} />
+          <KpiCard label={showDiff ? 'Разница: отчётность' : 'Сдано отчётности'} value={showDiff ? fmtDiff(diffTotals.reports) : kpi.reports.toLocaleString('ru-RU')} icon="📋" accent="bg-violet-50 text-violet-600"
+            sub={showDiff ? 'ТаксСервис − АрмСофт' : SRC_LABEL[source]} />
+          <KpiCard label={showDiff ? 'Разница: заявления' : 'Подано заявлений'} value={showDiff ? fmtDiff(diffTotals.applications) : kpi.applications.toLocaleString('ru-RU')} icon="📝" accent="bg-amber-50 text-amber-600"
+            sub={showDiff ? 'ТаксСервис − АрмСофт' : SRC_LABEL[source]} />
+          <KpiCard label={showDiff ? 'Разница: остатки' : 'Изменений остатков'} value={showDiff ? fmtDiff(diffTotals.balance) : kpi.balance.toLocaleString('ru-RU')} icon="⚖️" accent="bg-rose-50 text-rose-600"
+            sub={showDiff ? 'ТаксСервис − АрмСофт' : SRC_LABEL[source]} />
           {canManage && (
             <KpiCard label="Не в реестре" value={orphanActivities.length} icon="⚠️" accent="bg-orange-50 text-orange-500"
               sub={`активны, но без записи · всего в реестре: ${companies.length}`} />
@@ -1004,7 +1018,7 @@ export default function Accounting() {
                 {source !== 'all' && <span className="ml-2"><SourcePill src={source} /></span>}
               </h2>
               <div className="flex gap-1.5 items-center text-xs text-slate-400">
-                <SourcePill src="base" /><SourcePill src="armsoft" /><SourcePill src="taxservice" />
+                <SourcePill src="armsoft" /><SourcePill src="taxservice" />
                 <span className="ml-2">Нажмите на число → документы</span>
               </div>
             </div>
@@ -1027,14 +1041,12 @@ export default function Accounting() {
                     <tr className="bg-slate-50 text-[11px] text-slate-500 font-semibold uppercase tracking-wide border-b border-slate-200">
                       <th className="text-left px-5 py-3 whitespace-nowrap">Компания</th>
                       <th className="text-left px-4 py-3 whitespace-nowrap">Бухгалтер</th>
-                      {(source === 'all' || source === 'base') && <th className="text-center px-4 py-3 whitespace-nowrap bg-blue-50/60 border-x border-blue-100">База</th>}
                       {(source === 'all' || source === 'armsoft') && <th className="text-center px-4 py-3 whitespace-nowrap bg-violet-50/60 border-x border-violet-100">АрмСофт</th>}
                       {(source === 'all' || source === 'taxservice') && <th className="text-center px-4 py-3 whitespace-nowrap bg-emerald-50/60 border-x border-emerald-100">ТаксСервис</th>}
-                      <th className="text-center px-4 py-3 whitespace-nowrap font-bold text-slate-700">Итого</th>
+                      <th className="text-center px-4 py-3 whitespace-nowrap font-bold text-slate-700">{showDiff ? 'Разница (ТС − АС)' : 'Итого'}</th>
                     </tr>
                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] text-slate-400">
                       <th colSpan={2} />
-                      {(source === 'all' || source === 'base') && <th className="py-1 bg-blue-50/40 border-x border-blue-100"><div className="grid grid-cols-4 gap-x-3 text-center px-4 min-w-[130px]"><span>Инв</span><span>Отч</span><span>Зая</span><span>Ост</span></div></th>}
                       {(source === 'all' || source === 'armsoft') && <th className="py-1 bg-violet-50/40 border-x border-violet-100"><div className="grid grid-cols-4 gap-x-3 text-center px-4 min-w-[130px]"><span>Инв</span><span>Отч</span><span>Зая</span><span>Ост</span></div></th>}
                       {(source === 'all' || source === 'taxservice') && <th className="py-1 bg-emerald-50/40 border-x border-emerald-100"><div className="grid grid-cols-4 gap-x-3 text-center px-4 min-w-[130px]"><span>Инв</span><span>Отч</span><span>Зая</span><span>Ост</span></div></th>}
                       <th className="py-1"><div className="grid grid-cols-4 gap-x-3 text-center px-4 min-w-[130px]"><span>Инв</span><span>Отч</span><span>Зая</span><span>Ост</span></div></th>
@@ -1053,6 +1065,16 @@ export default function Accounting() {
                         armsoft_company_id: comp?.armsoft_company_id ?? null,
                         tax_company_id: comp?.tax_account_id ?? null,
                       })
+                      // ТаксСервис − АрмСофт per metric: what does not match (req 4).
+                      const rowDiff = {
+                        invoices: row.taxservice.invoices - row.armsoft.invoices,
+                        reports: row.taxservice.reports - row.armsoft.reports,
+                        applications: row.taxservice.applications - row.armsoft.applications,
+                        balance: row.taxservice.balance - row.armsoft.balance,
+                      }
+                      const diffCell = (n) => (
+                        <span className={`font-bold tabular-nums ${n === 0 ? 'text-slate-300' : 'text-rose-600'}`}>{fmtDiff(n)}</span>
+                      )
                       return (
                         <tr key={row.company_name} className={`hover:bg-indigo-50/30 transition-colors ${i % 2 ? 'bg-slate-50/30' : ''}`}>
                           <td className="px-5 py-3 font-medium text-slate-800 whitespace-nowrap max-w-[240px]">
@@ -1083,15 +1105,25 @@ export default function Accounting() {
                               <span className="text-xs text-slate-600">{row.accountant_name}</span>
                             </div>
                           </td>
-                          {(source === 'all' || source === 'base') && <td className="px-4 py-3 bg-blue-50/30 border-x border-blue-100"><MetricGrid t={row.base} context={ctx('base')} onCellClick={setDetailModal} /></td>}
                           {(source === 'all' || source === 'armsoft') && <td className="px-4 py-3 bg-violet-50/30 border-x border-violet-100"><MetricGrid t={row.armsoft} context={ctx('armsoft')} onCellClick={setDetailModal} /></td>}
                           {(source === 'all' || source === 'taxservice') && <td className="px-4 py-3 bg-emerald-50/30 border-x border-emerald-100"><MetricGrid t={row.taxservice} context={ctx('taxservice')} onCellClick={setDetailModal} /></td>}
                           <td className="px-4 py-3">
                             <div className="grid grid-cols-4 gap-x-3 text-xs text-right min-w-[130px]">
-                              <span className="font-bold text-slate-900 tabular-nums">{row.total.invoices}</span>
-                              <span className="font-bold text-slate-900 tabular-nums">{row.total.reports}</span>
-                              <span className="font-bold text-slate-900 tabular-nums">{row.total.applications}</span>
-                              <span className="font-bold text-slate-900 tabular-nums">{row.total.balance}</span>
+                              {showDiff ? (
+                                <>
+                                  {diffCell(rowDiff.invoices)}
+                                  {diffCell(rowDiff.reports)}
+                                  {diffCell(rowDiff.applications)}
+                                  {diffCell(rowDiff.balance)}
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-bold text-slate-900 tabular-nums">{row.total.invoices}</span>
+                                  <span className="font-bold text-slate-900 tabular-nums">{row.total.reports}</span>
+                                  <span className="font-bold text-slate-900 tabular-nums">{row.total.applications}</span>
+                                  <span className="font-bold text-slate-900 tabular-nums">{row.total.balance}</span>
+                                </>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1101,16 +1133,26 @@ export default function Accounting() {
                   {companyRows.length > 1 && (
                     <tfoot>
                       <tr className="bg-indigo-50 border-t-2 border-indigo-200 text-xs font-bold text-slate-700">
-                        <td className="px-5 py-3" colSpan={2}>Итого</td>
-                        {(source === 'all' || source === 'base') && <td className="px-4 py-3 bg-blue-50/50 border-x border-blue-100" />}
+                        <td className="px-5 py-3" colSpan={2}>{showDiff ? 'Разница (ТС − АС)' : 'Итого'}</td>
                         {(source === 'all' || source === 'armsoft') && <td className="px-4 py-3 bg-violet-50/50 border-x border-violet-100" />}
                         {(source === 'all' || source === 'taxservice') && <td className="px-4 py-3 bg-emerald-50/50 border-x border-emerald-100" />}
                         <td className="px-4 py-3">
                           <div className="grid grid-cols-4 gap-x-3 text-right min-w-[130px]">
-                            <span className="text-indigo-700 tabular-nums">{kpi.invoices.toLocaleString('ru-RU')}</span>
-                            <span className="text-violet-700 tabular-nums">{kpi.reports.toLocaleString('ru-RU')}</span>
-                            <span className="text-amber-700 tabular-nums">{kpi.applications.toLocaleString('ru-RU')}</span>
-                            <span className="text-rose-700 tabular-nums">{kpi.balance.toLocaleString('ru-RU')}</span>
+                            {showDiff ? (
+                              <>
+                                <span className={`tabular-nums ${diffTotals.invoices === 0 ? 'text-slate-400' : 'text-rose-600'}`}>{fmtDiff(diffTotals.invoices)}</span>
+                                <span className={`tabular-nums ${diffTotals.reports === 0 ? 'text-slate-400' : 'text-rose-600'}`}>{fmtDiff(diffTotals.reports)}</span>
+                                <span className={`tabular-nums ${diffTotals.applications === 0 ? 'text-slate-400' : 'text-rose-600'}`}>{fmtDiff(diffTotals.applications)}</span>
+                                <span className={`tabular-nums ${diffTotals.balance === 0 ? 'text-slate-400' : 'text-rose-600'}`}>{fmtDiff(diffTotals.balance)}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-indigo-700 tabular-nums">{kpi.invoices.toLocaleString('ru-RU')}</span>
+                                <span className="text-violet-700 tabular-nums">{kpi.reports.toLocaleString('ru-RU')}</span>
+                                <span className="text-amber-700 tabular-nums">{kpi.applications.toLocaleString('ru-RU')}</span>
+                                <span className="text-rose-700 tabular-nums">{kpi.balance.toLocaleString('ru-RU')}</span>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>

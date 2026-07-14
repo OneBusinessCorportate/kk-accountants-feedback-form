@@ -16,10 +16,15 @@ import { Loading, ErrorMessage } from '../components/States'
 // Columns shown as checkmark cells — the "Maggie's file" columns
 const CHECK_TYPES = ['mailing', 'report', 'receipt']
 
+// Predefined task titles offered directly in the table (req 1). Picking one
+// creates a task with that exact name; «Другое» opens a free-text input.
+const PRESET_TASKS = ['հաշիվ գրել', 'փոխանցում անել']
+const OTHER_OPTION = '__other__'
+
 const RESOLVED = new Set(['fixed', 'explained_accepted'])
 
 export default function Clients() {
-  const { access } = useAuth()
+  const { access, isSupervisor } = useAuth()
   const [problems, setProblems] = useState([])
   const [chats, setChats] = useState([])
   const [tasks, setTasks] = useState([])
@@ -29,6 +34,9 @@ export default function Clients() {
   const [expanded, setExpanded] = useState(null)
   const [onlyNoMailing, setOnlyNoMailing] = useState(false)
   const [creating, setCreating] = useState(null)
+  // Free-text «Другое» task input: which client's input is open + its text.
+  const [otherFor, setOtherFor] = useState(null)
+  const [otherText, setOtherText] = useState('')
 
   useEffect(() => {
     let active = true
@@ -116,6 +124,61 @@ export default function Clients() {
     } finally {
       setCreating(null)
     }
+  }
+
+  // The accountant a new task should be attributed to, so it shows up in that
+  // person's «Задачи». Prefer the client's own resolved accountant; otherwise
+  // the current user (regular accountants work their own clients), leaving it
+  // unassigned only for supervisors with no owner on record.
+  function taskAssignee(client) {
+    const owned = client.problems.find((p) => p.accountant_id)
+    if (owned) return { id: owned.accountant_id, name: owned.accountant_name || null }
+    if (!isSupervisor) return { id: access?.employee_id || null, name: access?.full_name || null }
+    return { id: null, name: null }
+  }
+
+  // Create a free-form named task for a client (req 1). The title IS the name
+  // the user picked («հաշիվ գրել» / «փোখানցум անել» / their own text).
+  async function createNamedTask(client, title) {
+    const name = (title || '').trim()
+    if (!name) return
+    const key = `${client.name}:named`
+    setCreating(key)
+    try {
+      const who = taskAssignee(client)
+      const created = await createTask({
+        task_type: 'other',
+        title: name,
+        client_name: client.name,
+        accountant_id: who.id,
+        accountant_name: who.name,
+        status: 'open',
+        created_by: access?.full_name || null,
+      })
+      setTasks((prev) => [created, ...prev])
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setCreating(null)
+    }
+  }
+
+  function handlePickTask(client, value) {
+    if (!value) return
+    if (value === OTHER_OPTION) {
+      setOtherText('')
+      setOtherFor(client.key)
+      return
+    }
+    createNamedTask(client, value)
+  }
+
+  async function submitOther(client) {
+    const text = otherText.trim()
+    if (!text) return
+    await createNamedTask(client, text)
+    setOtherFor(null)
+    setOtherText('')
   }
 
   function taskCell(client, type) {
@@ -212,6 +275,7 @@ export default function Clients() {
                         {TASK_TYPE_LABELS[t]}
                       </th>
                     ))}
+                    <th style={{ textAlign: 'center' }}>Задача</th>
                     <th>Проблемные чаты</th>
                   </tr>
                 </thead>
@@ -248,6 +312,57 @@ export default function Clients() {
                               {taskCell(c, t)}
                             </td>
                           ))}
+                          <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                            {otherFor === c.key ? (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                                <input
+                                  autoFocus
+                                  value={otherText}
+                                  onChange={(e) => setOtherText(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') submitOther(c)
+                                    if (e.key === 'Escape') setOtherFor(null)
+                                  }}
+                                  placeholder="Название задачи"
+                                  style={{ fontSize: 13, padding: '2px 6px', minWidth: 130 }}
+                                />
+                                <button
+                                  className="btn btn-sm"
+                                  disabled={creating === `${c.name}:named`}
+                                  onClick={() => submitOther(c)}
+                                  style={{ padding: '2px 8px' }}
+                                >
+                                  ОК
+                                </button>
+                                <button
+                                  className="btn btn-secondary btn-sm"
+                                  onClick={() => setOtherFor(null)}
+                                  style={{ padding: '2px 8px' }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <select
+                                value=""
+                                disabled={creating === `${c.name}:named`}
+                                onChange={(e) => {
+                                  handlePickTask(c, e.target.value)
+                                  e.target.value = ''
+                                }}
+                                title="Добавить задачу"
+                                style={{ fontSize: 13, padding: '2px 6px', color: 'var(--muted)' }}
+                              >
+                                <option value="">+ задача</option>
+                                {PRESET_TASKS.map((t) => (
+                                  <option key={t} value={t}>
+                                    {t}
+                                  </option>
+                                ))}
+                                <option value={OTHER_OPTION}>Другое…</option>
+                              </select>
+                            )}
+                          </td>
                           <td>
                             {c.chats.slice(0, 3).map((ch) => (
                               <a
@@ -272,7 +387,7 @@ export default function Clients() {
                         {isExpanded && (
                           <tr>
                             <td
-                              colSpan={4 + CHECK_TYPES.length}
+                              colSpan={5 + CHECK_TYPES.length}
                               style={{ background: 'var(--bg)', padding: '10px 16px' }}
                             >
                               {c.problems.map((p) => (
