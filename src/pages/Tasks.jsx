@@ -58,7 +58,9 @@ export default function Tasks() {
   const [error, setError] = useState(null)
   const [filterType, setFilterType] = useState('')
   const [filterAccountant, setFilterAccountant] = useState('')
-  const [showDone, setShowDone] = useState(false)
+  // Show completed tasks by default so marking one done doesn't make it vanish
+  // from the list (the toggle can still hide them).
+  const [showDone, setShowDone] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState(BLANK)
   const [saving, setSaving] = useState(false)
