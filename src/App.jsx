@@ -19,12 +19,16 @@ import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
 import QAStats from './pages/QAStats.jsx'
 import Accounting from './pages/Accounting.jsx'
+import MandatoryReview from './pages/MandatoryReview.jsx'
 
 export default function App() {
   // Auth gate state machine: loading → (anon | authed | error).
   const [status, setStatus] = useState('loading')
   const [access, setAccess] = useState(null)
   const [authError, setAuthError] = useState(null)
+  // Mandatory "answer yesterday's tickets" gate: a regular accountant is blocked
+  // from the whole platform until it clears. Reset on every (re)login.
+  const [gateCleared, setGateCleared] = useState(false)
 
   // Resolve the stored code (if any) on startup / retry.
   const restore = useCallback(() => {
@@ -59,12 +63,14 @@ export default function App() {
 
   function handleLoggedIn(a) {
     setAccess(a)
+    setGateCleared(false)
     setStatus('authed')
   }
 
   function handleSignOut() {
     authSignOut()
     setAccess(null)
+    setGateCleared(false)
     setStatus('anon')
   }
 
@@ -93,6 +99,34 @@ export default function App() {
 
   const links = visibleNavLinks(manage)
   const roleText = roleLabel(access?.role)
+
+  // Mandatory gate: a regular accountant (never a supervisor/manager) sees
+  // NOTHING but the yesterday-tickets review until every ticket is answered.
+  // No nav, no routes — the only way forward is to accept/appeal each ticket.
+  const gated = !supervisor && !gateCleared
+  if (gated) {
+    return (
+      <AuthContext.Provider
+        value={{ access, isSupervisor: supervisor, canManage: manage, signOut: handleSignOut }}
+      >
+        <div className="app">
+          <header className="topbar">
+            <div className="brand">KK · Обратная связь бухгалтеров</div>
+            <div className="topbar-user">
+              <span className="user-name">{access?.full_name || 'Сотрудник'}</span>
+              {roleText && <span className="badge badge-gray">{roleText}</span>}
+              <button className="btn btn-secondary btn-sm" onClick={handleSignOut}>
+                Выйти
+              </button>
+            </div>
+          </header>
+          <main className="container">
+            <MandatoryReview access={access} onComplete={() => setGateCleared(true)} />
+          </main>
+        </div>
+      </AuthContext.Provider>
+    )
+  }
 
   return (
     <AuthContext.Provider

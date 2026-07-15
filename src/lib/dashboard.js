@@ -222,6 +222,23 @@ export function inPeriod(problem, key, now = new Date()) {
   return d.getTime() >= start.getTime()
 }
 
+// The FULL previous calendar day in Asia/Yerevan (not a rolling 24h): an
+// inclusive start (yesterday 00:00 local) and an exclusive end (today 00:00
+// local), both as UTC Dates. Used by the mandatory yesterday-tickets gate.
+export function yesterdayRange(now = new Date()) {
+  return { start: localDayStart(now, 1), end: localDayStart(now, 0) }
+}
+
+// Is this problem's business date (detected_at, fallback created_at) within
+// yesterday in Asia/Yerevan?
+export function inYesterday(problem, now = new Date()) {
+  const { start, end } = yesterdayRange(now)
+  const d = problemDate(problem)
+  if (!d) return false
+  const t = d.getTime()
+  return t >= start.getTime() && t < end.getTime()
+}
+
 // ---- date display (req 3: "даты отображаются неправильно") -----------------
 // Format a timestamp in Asia/Yerevan so the shown date matches the business day.
 export function formatDate(value) {
