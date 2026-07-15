@@ -61,7 +61,7 @@ describe('selectYesterdayTickets', () => {
     expect(tickets).toHaveLength(0)
   })
 
-  it('excludes AI, false positives, and inactive/unknown chats', () => {
+  it('excludes AI, false positives, and inactive chats', () => {
     const problems = [
       ticket({ problem_id: 'ai', source: 'ai' }),
       ticket({ problem_id: 'fp', verdict: 'not_problematic' }),
@@ -72,6 +72,26 @@ describe('selectYesterdayTickets', () => {
       { agr_no: 'B-9', chat_link: 'https://t.me/gone', status: 'Inactive' },
     ]
     const tickets = selectYesterdayTickets({ problems, chats, access: ACC, now: NOW })
+    expect(tickets).toHaveLength(0)
+  })
+
+  it('BLOCKS on an unknown chat when the ticket has a resolved accountant (stricter)', () => {
+    // Chat not present in the directory at all → "unknown".
+    const problems = [ticket({ problem_id: 'u1', chat_link: 'https://t.me/notlisted', contract_id: 'B-777' })]
+    const tickets = selectYesterdayTickets({ problems, chats: CHATS, access: ACC, now: NOW })
+    expect(tickets.map((t) => t.problem_id)).toEqual(['u1'])
+  })
+
+  it('does NOT block an unknown-chat ticket that has NO responsible accountant', () => {
+    // Override after the helper (its `??` defaults would otherwise restore an id).
+    const problems = [
+      {
+        ...ticket({ problem_id: 'u2', chat_link: 'https://t.me/notlisted', contract_id: 'B-778' }),
+        accountant_id: null,
+        accountant_name: null,
+      },
+    ]
+    const tickets = selectYesterdayTickets({ problems, chats: CHATS, access: ACC, now: NOW })
     expect(tickets).toHaveLength(0)
   })
 })

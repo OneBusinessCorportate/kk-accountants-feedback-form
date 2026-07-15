@@ -61,6 +61,9 @@ export default function App() {
     restore()
   }, [restore])
 
+  // Stable ref so MandatoryReview's fetch effect doesn't re-run on every render.
+  const clearGate = useCallback(() => setGateCleared(true), [])
+
   function handleLoggedIn(a) {
     setAccess(a)
     setGateCleared(false)
@@ -121,7 +124,7 @@ export default function App() {
             </div>
           </header>
           <main className="container">
-            <MandatoryReview access={access} onComplete={() => setGateCleared(true)} />
+            <MandatoryReview access={access} onComplete={clearGate} />
           </main>
         </div>
       </AuthContext.Provider>

@@ -17,18 +17,29 @@
 // Pure + DB-free so it is unit-tested and reused by the page and (future)
 // anywhere else. Supervisors/management bypass the gate entirely (see isBlocked).
 
-import { prepareDashboard, inYesterday } from './dashboard'
+import { prepareDashboard, inYesterday, hasResponsibleAccountant } from './dashboard'
 import { keepOwnProblems, seesAllClients } from './scope'
 
-// The accountant's ACTIVE, RELEVANT tickets detected yesterday.
+// The accountant's RELEVANT tickets detected yesterday.
+//
+// Owner decision (stricter): block on ACTIVE chats AND on "unknown" chats (a
+// chat not found in kk_chat_directory) — as long as the ticket has a resolved
+// responsible accountant. We still NEVER block on:
+//   * inactive / excluded / test chats  → prepareDashboard puts them in `hidden`;
+//   * confirmed false positives / AI     → dropped by prepareDashboard;
+//   * tickets with no responsible accountant (req: never guess an owner).
+//
+// prepareDashboard splits rows into active / needsReview / hidden. `active` =
+// active chat + resolved accountant. `needsReview` holds unknown-chat rows and
+// no-accountant rows; from it we additionally take ONLY the ones that DO have a
+// resolved accountant (i.e. unknown-chat-with-owner) — never the ownerless ones.
 export function selectYesterdayTickets({ problems = [], chats = [], access, now = new Date() }) {
-  // Only yesterday's rows, then the same active/relevant filtering the dashboard
-  // uses (Margarita/Sona, active chat, resolved accountant, deduped).
   const yesterday = problems.filter((p) => inYesterday(p, now))
-  const { active } = prepareDashboard({ problems: yesterday, chats, period: 'all', now })
+  const { active, needsReview } = prepareDashboard({ problems: yesterday, chats, period: 'all', now })
+  const unknownWithOwner = needsReview.filter((p) => hasResponsibleAccountant(p))
   // Scope to this accountant (uuid AND normalized name). Supervisors would see
   // all, but they bypass the gate anyway (isBlocked returns false for them).
-  return keepOwnProblems(active, access)
+  return keepOwnProblems([...active, ...unknownWithOwner], access)
 }
 
 // problem_ids that already have an acknowledgement or an appeal → "answered".
