@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals } from '../lib/api'
+import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals, fetchViolationWorkflowForProblem, acknowledgeViolation, appealViolation } from '../lib/api'
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS, APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE } from '../lib/constants'
+import { isMargaritaProblem, interpretWorkflow } from '../lib/violationWorkflow'
 import { displayAuthor, problemContext, sortQueue } from '../lib/presentation'
 import {
   DASHBOARD_SOURCES,
@@ -294,6 +295,134 @@ function ReactionBox({ problem, onDone }) {
   )
 }
 
+// Reaction on a Margarita violation. Unlike the generic ReactionBox (which uses
+// this app's kk_problem_* tables), this one persists straight into the QA
+// platform's OWN tables (mqa_violations / mqa_violation_appeals) via the
+// migration-0027 RPCs, and reads Margarita's live status + decision from the
+// kk_violation_workflow view — so she sees the reaction and the accountant sees
+// her verdict. The login code is enforced server-side; ownership is not trusted
+// from the client.
+function MargaritaReactionBox({ problem, onDone }) {
+  const [row, setRow] = useState(null)
+  const [loaded, setLoaded] = useState(false)
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+
+  function reload() {
+    return fetchViolationWorkflowForProblem(problem.problem_id)
+      .then((r) => setRow(r))
+      .catch(() => {})
+      .finally(() => setLoaded(true))
+  }
+
+  useEffect(() => {
+    setLoaded(false)
+    reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problem.problem_id])
+
+  const wf = interpretWorkflow(row)
+
+  async function handleAcknowledge() {
+    setBusy(true)
+    setError(null)
+    try {
+      await acknowledgeViolation({ problemId: problem.problem_id })
+      await reload()
+      onDone()
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleAppeal() {
+    const text = comment.trim()
+    if (!text) return
+    setBusy(true)
+    setError(null)
+    try {
+      await appealViolation({ problemId: problem.problem_id, appealText: text })
+      setComment('')
+      await reload()
+      onDone()
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <div className="subbox" style={{ marginBottom: 12 }}>
+      <h4 style={{ marginTop: 0 }}>Ваша реакция</h4>
+
+      <p className="hint" style={{ margin: '0 0 8px' }}>
+        Статус:{' '}
+        <span className={`badge ${wf.badge}`}>{wf.label}</span>
+      </p>
+
+      {wf.pendingAppeal && wf.appealText && (
+        <p className="hint" style={{ margin: '0 0 8px' }}>
+          Ваша апелляция: «{wf.appealText}» — ожидает решения Маргариты.
+        </p>
+      )}
+
+      {wf.decided && (
+        <p className="hint" style={{ margin: '0 0 8px' }}>
+          Решение Маргариты:{' '}
+          <span className={`badge ${wf.badge}`}>
+            {wf.approved ? 'Апелляция одобрена' : 'Апелляция отклонена'}
+          </span>
+          {wf.decisionComment ? ` — «${wf.decisionComment}»` : ''}
+          {wf.approved ? ' Нарушение снято, штраф аннулирован.' : ''}
+        </p>
+      )}
+
+      <ErrorMessage error={error} />
+
+      {wf.canAcknowledge && (
+        <div className="btn-row" style={{ marginBottom: 10 }}>
+          <button className="btn btn-green" disabled={busy} onClick={handleAcknowledge}>
+            ✓ Ознакомлен (согласен)
+          </button>
+        </div>
+      )}
+
+      {wf.canAppeal ? (
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label>
+            Не согласны? Напишите комментарий — апелляция уйдёт Маргарите
+            (проверяющей) на рассмотрение
+          </label>
+          <textarea
+            rows={3}
+            placeholder="Ваш комментарий / причина несогласия с нарушением"
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <div className="btn-row" style={{ marginTop: 6 }}>
+            <button className="btn" disabled={!comment.trim() || busy} onClick={handleAppeal}>
+              {busy ? 'Отправка…' : 'Подать апелляцию'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        !wf.pendingAppeal &&
+        !wf.decided && (
+          <p className="hint" style={{ margin: 0 }}>
+            Действий больше не требуется.
+          </p>
+        )
+      )}
+    </div>
+  )
+}
+
 // Shared thread with the QA platform: accountants and supervisors can both
 // write here; everything posted is visible on the checker's side too.
 function SonaComments({ problem, authorName }) {
@@ -477,7 +606,11 @@ function ProblemFeedbackCard({ problem, onSaved }) {
 
       {context && <div className="description">{context}</div>}
 
-      <ReactionBox problem={problem} onDone={onSaved} />
+      {isMargaritaProblem(problem) ? (
+        <MargaritaReactionBox problem={problem} onDone={onSaved} />
+      ) : (
+        <ReactionBox problem={problem} onDone={onSaved} />
+      )}
 
       {problem.source === 'sona_review' && (
         <SonaComments problem={problem} authorName={access?.full_name} />
