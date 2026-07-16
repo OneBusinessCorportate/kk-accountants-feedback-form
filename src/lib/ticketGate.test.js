@@ -96,6 +96,48 @@ describe('selectYesterdayTickets', () => {
   })
 })
 
+describe('Monday reaches back to Friday (previous working day)', () => {
+  // Monday 2026-07-20, 13:00 Yerevan. Previous working day = Friday 2026-07-17.
+  const MONDAY = new Date('2026-07-20T09:00:00Z')
+  const FRIDAY = '2026-07-17T08:00:00Z' // 12:00 Yerevan, 17 July
+  const SATURDAY = '2026-07-18T08:00:00Z'
+  const SUNDAY = '2026-07-19T08:00:00Z'
+  const THURSDAY = '2026-07-16T08:00:00Z' // day before Friday — must NOT block
+
+  it("blocks on Friday's tickets when logging in Monday", () => {
+    const tickets = selectYesterdayTickets({
+      problems: [ticket({ problem_id: 'fri', detected_at: FRIDAY })],
+      chats: CHATS,
+      access: ACC,
+      now: MONDAY,
+    })
+    expect(tickets.map((t) => t.problem_id)).toEqual(['fri'])
+  })
+
+  it('also blocks on weekend tickets (Sat/Sun) on Monday', () => {
+    const tickets = selectYesterdayTickets({
+      problems: [
+        ticket({ problem_id: 'sat', detected_at: SATURDAY }),
+        ticket({ problem_id: 'sun', detected_at: SUNDAY }),
+      ],
+      chats: CHATS,
+      access: ACC,
+      now: MONDAY,
+    })
+    expect(tickets.map((t) => t.problem_id).sort()).toEqual(['sat', 'sun'])
+  })
+
+  it('does NOT block on Thursday tickets (before the Friday window) on Monday', () => {
+    const tickets = selectYesterdayTickets({
+      problems: [ticket({ problem_id: 'thu', detected_at: THURSDAY })],
+      chats: CHATS,
+      access: ACC,
+      now: MONDAY,
+    })
+    expect(tickets).toHaveLength(0)
+  })
+})
+
 describe('answeredProblemIds', () => {
   it('unions acknowledgements and appeals', () => {
     const ids = answeredProblemIds([{ problem_id: 'a' }], [{ problem_id: 'b' }, { problem_id: 'a' }])

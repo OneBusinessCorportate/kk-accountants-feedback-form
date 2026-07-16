@@ -239,6 +239,43 @@ export function inYesterday(problem, now = new Date()) {
   return t >= start.getTime() && t < end.getTime()
 }
 
+// Day-of-week (0=Sun … 6=Sat) of the local (Asia/Yerevan) calendar day `now`
+// falls in.
+function localDayOfWeek(now) {
+  const shifted = new Date(now.getTime() + TZ_OFFSET_MIN * 60000)
+  return shifted.getUTCDay()
+}
+
+// How many calendar days back the PREVIOUS WORKING DAY is from today's local day.
+// The working week is Mon–Fri, so on Monday the previous working day is Friday
+// (3 days back) and on Sunday it is Friday (2 days back); every other day it is
+// simply the day before. Used by the mandatory login gate so that on Monday an
+// accountant must clear FRIDAY's tickets (not empty Sunday).
+export function previousWorkingDaysBack(now = new Date()) {
+  const dow = localDayOfWeek(now)
+  if (dow === 1) return 3 // Monday → Friday
+  if (dow === 0) return 2 // Sunday → Friday
+  return 1 // Tue–Sat → the previous calendar day
+}
+
+// The window of the "previous working day" in Asia/Yerevan: an inclusive start
+// (that working day 00:00 local) and an exclusive end (today 00:00 local), both
+// as UTC Dates. On Monday the window reaches back to Friday 00:00 so it spans
+// Friday + the weekend — capturing every ticket since the last working day.
+export function previousWorkingDayRange(now = new Date()) {
+  return { start: localDayStart(now, previousWorkingDaysBack(now)), end: localDayStart(now, 0) }
+}
+
+// Is this problem's business date within the previous working day window
+// (Asia/Yerevan)? On Monday this is Friday (through the weekend).
+export function inPreviousWorkingDay(problem, now = new Date()) {
+  const { start, end } = previousWorkingDayRange(now)
+  const d = problemDate(problem)
+  if (!d) return false
+  const t = d.getTime()
+  return t >= start.getTime() && t < end.getTime()
+}
+
 // ---- date display (req 3: "даты отображаются неправильно") -----------------
 // Format a timestamp in Asia/Yerevan so the shown date matches the business day.
 export function formatDate(value) {

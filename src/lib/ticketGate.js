@@ -1,9 +1,11 @@
-// Mandatory "answer yesterday's tickets first" gate (pure logic).
+// Mandatory "answer the previous working day's tickets first" gate (pure logic).
 //
 // Owner rule: a regular accountant must NOT see any normal page (Дашборд,
-// Задачи, Клиенты, Отчётность, …) until EVERY ticket assigned to them from
-// YESTERDAY (the full previous calendar day, Asia/Yerevan) has been answered —
-// each either accepted («Ознакомлен») or appealed («Подать апелляцию»).
+// Задачи, Клиенты, Отчётность, …) until EVERY ticket assigned to them from the
+// PREVIOUS WORKING DAY (Asia/Yerevan) has been answered — each either accepted
+// («Ознакомлен») or appealed («Подать апелляцию»). The working week is Mon–Fri,
+// so on MONDAY the gate reaches back to FRIDAY (spanning the weekend); every
+// other working day it is simply the previous calendar day.
 //
 // A "ticket" is exactly what the dashboard treats as real, active work, so the
 // gate can NEVER block on something the platform itself considers irrelevant:
@@ -17,10 +19,11 @@
 // Pure + DB-free so it is unit-tested and reused by the page and (future)
 // anywhere else. Supervisors/management bypass the gate entirely (see isBlocked).
 
-import { prepareDashboard, inYesterday, hasResponsibleAccountant } from './dashboard'
+import { prepareDashboard, inPreviousWorkingDay, hasResponsibleAccountant } from './dashboard'
 import { keepOwnProblems, seesAllClients } from './scope'
 
-// The accountant's RELEVANT tickets detected yesterday.
+// The accountant's RELEVANT tickets detected on the previous working day
+// (on Monday: Friday + the weekend).
 //
 // Owner decision (stricter): block on ACTIVE chats AND on "unknown" chats (a
 // chat not found in kk_chat_directory) — as long as the ticket has a resolved
@@ -34,8 +37,8 @@ import { keepOwnProblems, seesAllClients } from './scope'
 // no-accountant rows; from it we additionally take ONLY the ones that DO have a
 // resolved accountant (i.e. unknown-chat-with-owner) — never the ownerless ones.
 export function selectYesterdayTickets({ problems = [], chats = [], access, now = new Date() }) {
-  const yesterday = problems.filter((p) => inYesterday(p, now))
-  const { active, needsReview } = prepareDashboard({ problems: yesterday, chats, period: 'all', now })
+  const window = problems.filter((p) => inPreviousWorkingDay(p, now))
+  const { active, needsReview } = prepareDashboard({ problems: window, chats, period: 'all', now })
   const unknownWithOwner = needsReview.filter((p) => hasResponsibleAccountant(p))
   // Scope to this accountant (uuid AND normalized name). Supervisors would see
   // all, but they bypass the gate anyway (isBlocked returns false for them).
