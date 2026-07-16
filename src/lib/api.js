@@ -1,6 +1,8 @@
 import { supabase } from './supabaseClient'
 import { STATUS } from './constants'
 import { qaKind } from './ingestion'
+import { getStoredCode } from './auth'
+import { violationIdFromProblemId } from './violationWorkflow'
 
 // Small helper so callers get a clean error message instead of a raw object.
 function unwrap({ data, error }) {
@@ -308,6 +310,71 @@ export async function setProblemPenalty({ problemId, amount }) {
       .select()
       .single(),
   )
+}
+
+// ---- Margarita violation workflow (cross-app: writes to the QA platform) ---
+//
+// A `margarita_review` problem is a MIRROR of a row that actually lives in
+// Margarita's QA platform (mqa_violations, id embedded as `margarita:<id>`).
+// The QA platform owns the appeal decision, so the accountant's reaction on
+// such a problem must NOT go to this app's kk_problem_* tables — it must write
+// back to mqa_violations / mqa_violation_appeals so Margarita's platform,
+// reports and Telegram see it, and her decision flows back here.
+//
+// Both apps share one Supabase project, and this app is a static SPA on the
+// anon key, so the write path is two SECURITY DEFINER RPCs (migration 0027)
+// that authenticate the login code, enforce ownership + validation + one-pending
+// server-side, and are idempotent. Her live status + decision are read back from
+// the kk_violation_workflow view (never trusting client state).
+
+// Live workflow state (status, acknowledgement, latest appeal + decision) for a
+// set of Margarita problems, or all of them when no ids are given.
+export async function fetchViolationWorkflow(problemIds) {
+  let query = supabase.from('kk_violation_workflow').select('*')
+  if (problemIds?.length) query = query.in('problem_id', problemIds)
+  return unwrap(await query)
+}
+
+export async function fetchViolationWorkflowForProblem(problemId) {
+  const rows = unwrap(
+    await supabase.from('kk_violation_workflow').select('*').eq('problem_id', problemId),
+  )
+  return rows[0] || null
+}
+
+// «Ознакомлен» on a Margarita violation. Resolves the violation id from the
+// problem_id, sends the accountant's login code so the RPC can enforce ownership
+// server-side, and persists into mqa_violations. Idempotent.
+export async function acknowledgeViolation({ problemId, loginCode } = {}) {
+  const violationId = violationIdFromProblemId(problemId)
+  if (!violationId) throw new Error('Это не нарушение Маргариты — действие недоступно.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_acknowledge_violation', {
+    p_violation_id: violationId,
+    p_login_code: code,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+// «Подать апелляцию» on a Margarita violation → inserts into
+// mqa_violation_appeals and moves the violation to `appealed` (server-side).
+// The appeal then appears in Margarita's own /appeals queue + reports.
+export async function appealViolation({ problemId, loginCode, appealText } = {}) {
+  const violationId = violationIdFromProblemId(problemId)
+  if (!violationId) throw new Error('Это не нарушение Маргариты — действие недоступно.')
+  const text = (appealText || '').trim()
+  if (!text) throw new Error('Текст апелляции обязателен.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_appeal_violation', {
+    p_violation_id: violationId,
+    p_login_code: code,
+    p_appeal_text: text,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
 }
 
 // ---- Detection-quality ratings (learning signal) --------------------------

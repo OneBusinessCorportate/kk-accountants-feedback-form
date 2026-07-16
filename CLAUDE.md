@@ -226,6 +226,50 @@ doubles as completed_at). A QA follow-up can be spun off an appeal via
 `createTask({ task_type:'qa', problem_id })`. Regular accountants see only their
 own tasks; supervisors see all, grouped by accountant.
 
+## Cross-app violation loop — write back to Margarita's QA platform (0027)
+
+A `margarita_review` problem keyed `margarita:<id>` is a **mirror** of a row that
+actually lives in Margarita's QA platform (`mqa_violations`), which is the SOURCE
+OF TRUTH for that violation and where she rules on appeals (her platform has
+`mqa_violations.status` new/acknowledged/appealed/appeal_approved/appeal_rejected,
+`acknowledged_*`, and the `mqa_violation_appeals` table). So for these problems the
+accountant's «Ознакомлен»/«Подать апелляцию» must NOT go to this app's
+`kk_problem_*` tables — that stayed invisible to her platform/reports/Telegram.
+Instead they write back into `mqa_violations` / `mqa_violation_appeals`, and her
+decision flows back here.
+
+Both apps share one Supabase project and this app is a static SPA on the anon key,
+so the write path is a **shared-DB** bridge (migration `0027`), not an HTTP call:
+
+- Two `SECURITY DEFINER` RPCs — `kk_acknowledge_violation(p_violation_id,
+  p_login_code)` and `kk_appeal_violation(p_violation_id, p_login_code,
+  p_appeal_text)` — authenticate the login code via `resolve_login_code`, enforce
+  **ownership** server-side (the violation's `accountant` must resolve to the same
+  employee via `kk_resolve_employee`, computed in the DB from the stored row — the
+  anon client cannot forge it), validate text, and are idempotent (acknowledge is
+  guarded `status='new'`; appeal relies on the one-pending partial unique index).
+  anon/authenticated may only EXECUTE these, they have no direct DML on `mqa_*`.
+- Read-only view `kk_violation_workflow` (same pattern as `kk_chat_directory`)
+  exposes the live status + latest appeal + Margarita's decision, keyed
+  `problem_id = margarita:<id>` so it lines up with `kk_problems`.
+
+**ORDERING:** migration 0027 depends on repo #1's
+`20260716_mqa_violation_workflow_appeals.sql` (it creates `mqa_violations.status`
+and `mqa_violation_appeals`). A guard at the top of 0027 fails loudly if that
+prerequisite is missing.
+
+JS: `src/lib/violationWorkflow.js` (pure: `isMargaritaProblem`,
+`violationIdFromProblemId`, `interpretWorkflow`) + `api.js`
+(`fetchViolationWorkflow*`, `acknowledgeViolation`, `appealViolation`, which send
+`getStoredCode()` as the identity). `Accountant.jsx` renders a
+`MargaritaReactionBox` (mqa-backed) for these problems and the existing
+`ReactionBox` (kk-backed) for every other source. An appeal submitted here shows
+up in Margarita's own `/appeals` queue, work-report and Telegram automatically
+(they already read `mqa_violation_appeals`). NOTE: a «Критично»/«Плохо»
+**evaluation** is source `margarita_review` too but keyed `margarita_eval:<id>`
+(no `mqa_violations` row) — `isMargaritaProblem` returns false for it, so it keeps
+using the local kk_problem flow.
+
 ## Detection-quality feedback loop (Review → learning)
 
 Reviewers (Проверка, management-only) rate whether a flagged problem was TRULY a
