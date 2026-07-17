@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals, fetchViolationWorkflowForProblem, acknowledgeViolation, appealViolation } from '../lib/api'
+import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals, fetchViolationWorkflow, fetchViolationWorkflowForProblem, acknowledgeViolation, appealViolation } from '../lib/api'
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
 import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS, APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE } from '../lib/constants'
-import { isMargaritaProblem, interpretWorkflow } from '../lib/violationWorkflow'
+import { isMargaritaProblem, interpretWorkflow, indexWorkflow } from '../lib/violationWorkflow'
+import { isConfirmedTicket, summarizeMyViolations } from '../lib/violationReport'
+import { MARGARITA_SOURCE } from '../lib/reports'
 import { displayAuthor, problemContext, sortQueue } from '../lib/presentation'
 import {
   DASHBOARD_SOURCES,
@@ -25,6 +27,12 @@ export default function Accountant() {
   const [category, setCategory] = useState('all')
   const [problems, setProblems] = useState([])
   const [myAppeals, setMyAppeals] = useState([])
+  // Margarita's live workflow rows (mqa_violations + latest appeal), keyed by
+  // problem_id, so cards render her status without a per-card round-trip and the
+  // list can drop confirmed = false violations (req 1).
+  const [workflowMap, setWorkflowMap] = useState(() => new Map())
+  // The accountant's own violation mini-report (req 4); null for supervisors.
+  const [violationReport, setViolationReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   // Monotonic request id so changing filters quickly can't let a stale
@@ -58,14 +66,54 @@ export default function Accountant() {
       // The accountant's own appeals (any status) — shown as a compact tracker
       // so they can follow a decision even after the issue leaves the queue.
       isSupervisor ? Promise.resolve([]) : fetchAppeals().catch(() => []),
+      // ALL of the accountant's Margarita violations (any status / any period)
+      // — the basis for the self mini-report (req 4). Supervisors don't get a
+      // personal report, so skip this fetch for them.
+      isSupervisor
+        ? Promise.resolve([])
+        : fetchProblems({ source: MARGARITA_SOURCE }).catch(() => []),
     ])
-      .then(([data, chats, appeals]) => {
+      .then(async ([data, chats, appeals, allMargarita]) => {
         if (reqId !== reqRef.current) return
         // prepareDashboard drops AI/false-positives/inactive chats, filters the
         // period and keeps only rows with a resolved accountant.
         const { active } = prepareDashboard({ problems: data, chats, period, now: new Date() })
-        setProblems(isSupervisor ? active : keepOwnProblems(active, access))
+        const scopedActive = isSupervisor ? active : keepOwnProblems(active, access)
+        const scopedMargarita = isSupervisor ? [] : keepOwnProblems(allMargarita, access)
+
+        // Fetch Margarita's live workflow rows for every VIOLATION in scope
+        // (violations only — margarita_eval:* has no mqa_violations row). This
+        // powers the confirmed filter, the card status, and the mini-report.
+        const ids = [
+          ...new Set(
+            [...scopedActive, ...scopedMargarita]
+              .filter(isMargaritaProblem)
+              .map((p) => p.problem_id),
+          ),
+        ]
+        const wfRows = ids.length ? await fetchViolationWorkflow(ids).catch(() => []) : []
+        if (reqId !== reqRef.current) return
+        const wfMap = indexWorkflow(wfRows)
+
+        // req 1: hide a violation Margarita has un-confirmed (confirmed = false).
+        const visible = scopedActive.filter(
+          (p) => !isMargaritaProblem(p) || isConfirmedTicket(wfMap.get(p.problem_id) || {}),
+        )
+
+        setProblems(visible)
+        setWorkflowMap(wfMap)
         setMyAppeals(isSupervisor ? [] : keepOwnProblems(appeals, access))
+        // req 4: mini-report over the accountant's own violation workflow rows.
+        setViolationReport(
+          isSupervisor
+            ? null
+            : summarizeMyViolations(
+                scopedMargarita
+                  .filter(isMargaritaProblem)
+                  .map((p) => wfMap.get(p.problem_id))
+                  .filter(Boolean),
+              ),
+        )
       })
       .catch((e) => reqId === reqRef.current && setError(e))
       .finally(() => reqId === reqRef.current && setLoading(false))
@@ -145,6 +193,10 @@ export default function Accountant() {
 
       <ErrorMessage error={error} />
 
+      {!isSupervisor && violationReport && violationReport.received > 0 && (
+        <MyViolationReport report={violationReport} />
+      )}
+
       {!isSupervisor && myAppeals.length > 0 && <MyAppeals appeals={myAppeals} />}
 
       {loading ? (
@@ -160,10 +212,69 @@ export default function Accountant() {
             )}
           </div>
           {ordered.map((p) => (
-            <ProblemFeedbackCard key={p.problem_id} problem={p} onSaved={load} />
+            <ProblemFeedbackCard
+              key={p.problem_id}
+              problem={p}
+              workflowRow={workflowMap.get(p.problem_id) || null}
+              onSaved={load}
+            />
           ))}
         </>
       )}
+    </div>
+  )
+}
+
+// The accountant's own violation mini-report (req 4) — the same figures
+// Margarita tracks per accountant, derived straight from her tables
+// (kk_violation_workflow). Confirmed tickets only, so it matches the list.
+function MyViolationReport({ report }) {
+  const fmt = (n) => new Intl.NumberFormat('ru-RU').format(n)
+  return (
+    <div className="subbox" style={{ marginBottom: 16 }}>
+      <h4 style={{ marginTop: 0 }}>Мои нарушения (по данным Маргариты)</h4>
+      <div className="stat-grid">
+        <div className="stat">
+          <div className="num">{report.received}</div>
+          <div className="label">Получено тикетов</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.acknowledged}</div>
+          <div className="label">Ознакомлен</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.appealsFiled}</div>
+          <div className="label">Подано апелляций</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.approved}</div>
+          <div className="label">Подтверждено</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.rejected}</div>
+          <div className="label">Отклонено</div>
+        </div>
+        <div className={`stat ${report.pending > 0 ? 'stat-alert' : ''}`}>
+          <div className="num">{report.pending}</div>
+          <div className="label">На рассмотрении</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.activeViolations}</div>
+          <div className="label">Активные нарушения</div>
+        </div>
+        <div className="stat">
+          <div className="num">{report.cancelledViolations}</div>
+          <div className="label">Отменённые нарушения</div>
+        </div>
+        <div className="stat">
+          <div className="num">{fmt(report.finesActive)}</div>
+          <div className="label">Активные штрафы</div>
+        </div>
+        <div className="stat">
+          <div className="num">{fmt(report.finesCancelled)}</div>
+          <div className="label">Отменённые штрафы</div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -323,9 +434,10 @@ function ReactionBox({ problem, onDone }) {
 // kk_violation_workflow view — so she sees the reaction and the accountant sees
 // her verdict. The login code is enforced server-side; ownership is not trusted
 // from the client.
-function MargaritaReactionBox({ problem, onDone }) {
-  const [row, setRow] = useState(null)
-  const [loaded, setLoaded] = useState(false)
+function MargaritaReactionBox({ problem, initialRow = null, onDone }) {
+  const [row, setRow] = useState(initialRow)
+  // Seeded from the list's batch fetch → render immediately, no per-card fetch.
+  const [loaded, setLoaded] = useState(!!initialRow)
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
@@ -338,10 +450,15 @@ function MargaritaReactionBox({ problem, onDone }) {
   }
 
   useEffect(() => {
+    if (initialRow) {
+      setRow(initialRow)
+      setLoaded(true)
+      return
+    }
     setLoaded(false)
     reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [problem.problem_id])
+  }, [problem.problem_id, initialRow])
 
   const wf = interpretWorkflow(row)
 
@@ -506,7 +623,7 @@ function SonaComments({ problem, authorName }) {
   )
 }
 
-function ProblemFeedbackCard({ problem, onSaved }) {
+function ProblemFeedbackCard({ problem, workflowRow = null, onSaved }) {
   const { access, isSupervisor } = useAuth()
   const [situation, setSituation] = useState('')
   const [solution, setSolution] = useState('')
@@ -628,7 +745,7 @@ function ProblemFeedbackCard({ problem, onSaved }) {
       {context && <div className="description">{context}</div>}
 
       {isMargaritaProblem(problem) ? (
-        <MargaritaReactionBox problem={problem} onDone={onSaved} />
+        <MargaritaReactionBox problem={problem} initialRow={workflowRow} onDone={onSaved} />
       ) : (
         <ReactionBox problem={problem} onDone={onSaved} />
       )}
