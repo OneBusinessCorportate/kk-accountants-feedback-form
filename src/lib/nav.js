@@ -1,17 +1,15 @@
 // Top navigation definition + visibility gating, kept pure so it can be unit
 // tested without rendering React. Dashboard and Accountant are visible to every
-// authenticated user; Review and Admin are management-only (see scope.canManage).
+// authenticated user; «Управление» (the merged Проверка + Апелляции + Админ
+// page) and «Отчёты» are management-only (see scope.canManage).
 export const NAV_LINKS = [
   { to: '/', label: 'Дашборд', end: true, manageOnly: false },
   { to: '/accountant', label: 'Бухгалтер', manageOnly: false },
   { to: '/tasks', label: 'Задачи', manageOnly: false },
   { to: '/clients', label: 'Клиенты', manageOnly: false },
   { to: '/accounting', label: 'Отчётность', manageOnly: false },
-  { to: '/review', label: 'Проверка', manageOnly: true },
-  { to: '/appeals', label: 'Апелляции', manageOnly: true },
+  { to: '/management', label: 'Управление', manageOnly: true },
   { to: '/reports', label: 'Отчёты', manageOnly: true },
-  { to: '/qa-stats', label: 'QA Точность', manageOnly: true },
-  { to: '/admin', label: 'Админ', manageOnly: true },
 ]
 
 /**

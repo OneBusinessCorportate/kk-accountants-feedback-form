@@ -9,12 +9,12 @@ describe('visibleNavLinks', () => {
 
   it('shows every link to a manager', () => {
     const tos = visibleNavLinks(true).map((l) => l.to)
-    expect(tos).toEqual(['/', '/accountant', '/tasks', '/clients', '/accounting', '/review', '/appeals', '/reports', '/qa-stats', '/admin'])
+    expect(tos).toEqual(['/', '/accountant', '/tasks', '/clients', '/accounting', '/management', '/reports'])
   })
 
-  it('only Review, Appeals, Reports, QA Stats and Admin are management-only', () => {
+  it('only Management and Reports are management-only', () => {
     const manageOnly = NAV_LINKS.filter((l) => l.manageOnly).map((l) => l.to)
-    expect(manageOnly).toEqual(['/review', '/appeals', '/reports', '/qa-stats', '/admin'])
+    expect(manageOnly).toEqual(['/management', '/reports'])
   })
 
   it('every link has a destination and a label', () => {

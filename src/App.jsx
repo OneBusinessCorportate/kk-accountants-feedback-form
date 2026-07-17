@@ -11,13 +11,10 @@ import LoadingScreen from './components/LoadingScreen.jsx'
 import ErrorScreen from './components/ErrorScreen.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import Accountant from './pages/Accountant.jsx'
-import Review from './pages/Review.jsx'
-import Appeals from './pages/Appeals.jsx'
+import Management from './pages/Management.jsx'
 import Reports from './pages/Reports.jsx'
-import Admin from './pages/Admin.jsx'
 import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
-import QAStats from './pages/QAStats.jsx'
 import Accounting from './pages/Accounting.jsx'
 import MandatoryReview from './pages/MandatoryReview.jsx'
 
@@ -161,11 +158,18 @@ export default function App() {
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/accounting" element={<Accounting />} />
-            <Route path="/review" element={manage ? <Review /> : <Navigate to="/" replace />} />
-            <Route path="/appeals" element={manage ? <Appeals /> : <Navigate to="/" replace />} />
+            <Route
+              path="/management"
+              element={manage ? <Management /> : <Navigate to="/" replace />}
+            />
             <Route path="/reports" element={manage ? <Reports /> : <Navigate to="/" replace />} />
-            <Route path="/qa-stats" element={manage ? <QAStats /> : <Navigate to="/" replace />} />
-            <Route path="/admin" element={manage ? <Admin /> : <Navigate to="/" replace />} />
+            {/* Legacy routes now merged into /management (Проверка + Апелляции +
+                Админ) — redirect so old links / bookmarks still work. QA Точность
+                was removed entirely. */}
+            <Route path="/review" element={<Navigate to="/management" replace />} />
+            <Route path="/appeals" element={<Navigate to="/management" replace />} />
+            <Route path="/admin" element={<Navigate to="/management" replace />} />
+            <Route path="/qa-stats" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
