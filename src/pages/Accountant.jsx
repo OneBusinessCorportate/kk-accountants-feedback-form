@@ -7,6 +7,8 @@ import { displayAuthor, problemContext, sortQueue } from '../lib/presentation'
 import {
   DASHBOARD_SOURCES,
   PERIODS,
+  CATEGORY_FILTERS,
+  matchesCategory,
   prepareDashboard,
   formatDate,
   isOverdue,
@@ -20,6 +22,7 @@ export default function Accountant() {
   const [accountants, setAccountants] = useState([])
   const [accountantId, setAccountantId] = useState('')
   const [period, setPeriod] = useState('week')
+  const [category, setCategory] = useState('all')
   const [problems, setProblems] = useState([])
   const [myAppeals, setMyAppeals] = useState([])
   const [loading, setLoading] = useState(true)
@@ -76,11 +79,16 @@ export default function Accountant() {
     }
   }, [accountantId, period, isSupervisor, access])
 
+  // Category filter narrows the queue further (client-side, after scoping).
+  const visible = useMemo(
+    () => problems.filter((p) => matchesCategory(p, category)),
+    [problems, category],
+  )
   // Most urgent / longest-waiting first, and count what's overdue.
-  const ordered = useMemo(() => sortQueue(problems), [problems])
+  const ordered = useMemo(() => sortQueue(visible), [visible])
   const overdueCount = useMemo(
-    () => problems.filter((p) => isOverdue(p)).length,
-    [problems],
+    () => visible.filter((p) => isOverdue(p)).length,
+    [visible],
   )
 
   return (
@@ -122,18 +130,31 @@ export default function Accountant() {
         ))}
       </div>
 
+      {/* Category filter — show tickets of one category at a time. */}
+      <div className="period-pills" style={{ marginTop: 8 }}>
+        {CATEGORY_FILTERS.map(({ key, label }) => (
+          <button
+            key={key}
+            className={`btn btn-sm ${category === key ? '' : 'btn-secondary'}`}
+            onClick={() => setCategory(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <ErrorMessage error={error} />
 
       {!isSupervisor && myAppeals.length > 0 && <MyAppeals appeals={myAppeals} />}
 
       {loading ? (
         <Loading />
-      ) : problems.length === 0 ? (
+      ) : visible.length === 0 ? (
         <Empty text="Нет проблем, ожидающих заполнения." />
       ) : (
         <>
           <div className="queue-summary">
-            В очереди: <b>{problems.length}</b>
+            В очереди: <b>{visible.length}</b>
             {overdueCount > 0 && (
               <span className="badge badge-red">Просрочено: {overdueCount}</span>
             )}

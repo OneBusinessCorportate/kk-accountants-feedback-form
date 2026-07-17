@@ -24,6 +24,7 @@ import {
   buildMailingIndex,
   mailingStateForContracts,
   CATEGORY,
+  matchesCategory,
 } from './dashboard'
 
 const CHATS = [
@@ -127,6 +128,34 @@ describe('categories and SLA tag', () => {
     expect(
       isSlaProblem(problem({ source: 'sona_review', problem_title: 'Нарушение сроков' })),
     ).toBe(false)
+  })
+  it('buckets non-review sources as "other"', () => {
+    expect(categoryOf(problem({ source: 'ai' }))).toBe(CATEGORY.other)
+    expect(categoryOf(problem({ source: 'manual' }))).toBe(CATEGORY.other)
+  })
+})
+
+describe('matchesCategory (UI filter)', () => {
+  it('matches everything for "all" or an empty key', () => {
+    expect(matchesCategory(problem(), 'all')).toBe(true)
+    expect(matchesCategory(problem(), '')).toBe(true)
+  })
+  it('matches an exclusive category', () => {
+    expect(matchesCategory(problem({ problem_title: 'Нарушение' }), CATEGORY.violation)).toBe(true)
+    expect(matchesCategory(problem({ problem_title: 'Нарушение' }), CATEGORY.sona)).toBe(false)
+    expect(matchesCategory(problem({ source: 'sona_review' }), CATEGORY.sona)).toBe(true)
+    expect(
+      matchesCategory(problem({ problem_title: 'Критичная оценка качества' }), CATEGORY.quality),
+    ).toBe(true)
+  })
+  it('matches the overlapping sla / overdue tags', () => {
+    expect(matchesCategory(problem({ problem_title: 'Нарушение сроков ответа' }), 'sla')).toBe(true)
+    expect(matchesCategory(problem({ problem_title: 'Ошибка в инвойсе' }), 'sla')).toBe(false)
+    const old = { detected_at: '2000-01-01T00:00:00Z', priority: 1 }
+    expect(matchesCategory(problem(old), 'overdue')).toBe(true)
+    expect(matchesCategory(problem({ detected_at: new Date().toISOString() }), 'overdue')).toBe(
+      false,
+    )
   })
 })
 

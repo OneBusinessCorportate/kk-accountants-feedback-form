@@ -119,6 +119,14 @@ export const CATEGORY = {
   violation: 'violation', // Margarita нарушения
   quality: 'quality', // Margarita оценки качества сервиса
   sona: 'sona', // Sona качество бухгалтерии
+  other: 'other', // any non-review source (ai / manual) — Admin only
+}
+
+export const CATEGORY_LABELS = {
+  violation: 'Нарушения',
+  quality: 'Оценка качества',
+  sona: 'Качество бухгалтерской работы',
+  other: 'Прочее',
 }
 
 // Titles/word-stems that mean a timing / responsiveness (SLA) problem.
@@ -132,10 +140,39 @@ export function isSlaProblem(problem) {
 
 export function categoryOf(problem) {
   if (problem?.source === 'sona_review') return CATEGORY.sona
-  const title = (problem?.problem_title ?? '').toLowerCase()
-  // Quality scorecards (margarita_eval) carry «...оценка качества сервиса».
-  if (title.includes('оценка качества')) return CATEGORY.quality
-  return CATEGORY.violation
+  if (problem?.source === 'margarita_review') {
+    const title = (problem?.problem_title ?? '').toLowerCase()
+    // Quality scorecards (margarita_eval) carry «...оценка качества сервиса».
+    if (title.includes('оценка качества')) return CATEGORY.quality
+    return CATEGORY.violation
+  }
+  // Non-review sources (historical `ai`, manual) never appear on the
+  // accountant dashboard but can show in the Admin table — bucket them here so
+  // the category filter classifies every row instead of mislabelling them.
+  return CATEGORY.other
+}
+
+// Category options for a UI filter (pills or <select>). `all` matches
+// everything; `sla` and `overdue` are overlapping tags rather than exclusive
+// buckets. `other` is only meaningful where non-review sources are listed
+// (Admin) and is added there explicitly.
+export const CATEGORY_FILTERS = [
+  { key: 'all', label: 'Все категории' },
+  { key: CATEGORY.violation, label: CATEGORY_LABELS.violation },
+  { key: CATEGORY.quality, label: CATEGORY_LABELS.quality },
+  { key: CATEGORY.sona, label: CATEGORY_LABELS.sona },
+  { key: 'sla', label: 'SLA (сроки)' },
+  { key: 'overdue', label: 'Просрочено' },
+]
+
+// Does a problem belong to the chosen category-filter key? `all`/empty always
+// matches; `sla` and `overdue` use the overlapping-tag helpers; every other key
+// compares against the exclusive category from categoryOf().
+export function matchesCategory(problem, key, now = new Date()) {
+  if (!key || key === 'all') return true
+  if (key === 'sla') return isSlaProblem(problem)
+  if (key === 'overdue') return isOverdue(problem, now)
+  return categoryOf(problem) === key
 }
 
 // ---- dedup (req 4) ---------------------------------------------------------

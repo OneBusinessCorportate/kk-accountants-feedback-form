@@ -1,8 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { fetchProblems, createProblem } from '../lib/api'
 import { SOURCES, SOURCE_LABELS } from '../lib/constants'
+import { CATEGORY, CATEGORY_LABELS, CATEGORY_FILTERS, categoryOf, matchesCategory } from '../lib/dashboard'
 import StatusBadge from '../components/StatusBadge'
 import { Loading, ErrorMessage, Empty } from '../components/States'
+
+// Category options for the Admin table. Admin lists every source (incl. the
+// historical `ai` / manual rows), so it also offers the «Прочее» bucket that
+// the accountant-facing filters never need.
+const ADMIN_CATEGORY_FILTERS = [
+  ...CATEGORY_FILTERS,
+  { key: CATEGORY.other, label: CATEGORY_LABELS.other },
+]
 
 const emptyForm = {
   problem_id: '',
@@ -28,6 +37,11 @@ export default function Admin() {
   const [problems, setProblems] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+
+  // Filters for the "all problems" table (Admin only): by accountant and by
+  // category, so management can find a ticket without scanning the whole list.
+  const [filterAccountant, setFilterAccountant] = useState('')
+  const [filterCategory, setFilterCategory] = useState('all')
 
   const [form, setForm] = useState({ ...emptyForm, problem_id: suggestProblemId() })
   const [saving, setSaving] = useState(false)
@@ -74,6 +88,29 @@ export default function Admin() {
 
   const canCreate =
     form.problem_id.trim() !== '' && form.source !== '' && !saving
+
+  // Distinct accountants present in the data, for the filter dropdown. Keyed by
+  // the resolved id; rows without one are grouped under a single «не определён».
+  const accountantOptions = useMemo(() => {
+    const map = new Map()
+    for (const p of problems) {
+      const id = p.accountant_id || ''
+      if (!map.has(id)) map.set(id, p.accountant_name || (id ? id : 'не определён'))
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }, [problems])
+
+  const filtered = useMemo(
+    () =>
+      problems.filter((p) => {
+        if (filterAccountant !== '' && (p.accountant_id || '') !== filterAccountant) return false
+        if (!matchesCategory(p, filterCategory)) return false
+        return true
+      }),
+    [problems, filterAccountant, filterCategory],
+  )
 
   return (
     <div>
@@ -171,13 +208,38 @@ export default function Admin() {
       </div>
 
       <h3 className="card-title" style={{ margin: '8px 0 12px' }}>
-        Все проблемы ({problems.length})
+        Все проблемы ({filtered.length} из {problems.length})
       </h3>
+
+      {/* Filter tickets by accountant and by category. */}
+      <div className="toolbar">
+        <div className="field">
+          <label>Бухгалтер</label>
+          <select value={filterAccountant} onChange={(e) => setFilterAccountant(e.target.value)}>
+            <option value="">Все бухгалтеры</option>
+            {accountantOptions.map((a) => (
+              <option key={a.id || 'none'} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label>Категория</label>
+          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+            {ADMIN_CATEGORY_FILTERS.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
 
       <ErrorMessage error={error} />
       {loading ? (
         <Loading />
-      ) : problems.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <Empty />
       ) : (
         <div className="table-wrap">
@@ -187,6 +249,7 @@ export default function Admin() {
                 <th>problem_id</th>
                 <th>Клиент</th>
                 <th>Источник</th>
+                <th>Категория</th>
                 <th>Приоритет</th>
                 <th>Бухгалтер</th>
                 <th>Статус</th>
@@ -194,11 +257,12 @@ export default function Admin() {
               </tr>
             </thead>
             <tbody>
-              {problems.map((p) => (
+              {filtered.map((p) => (
                 <tr key={p.problem_id}>
                   <td>{p.problem_id}</td>
                   <td>{p.client_name || '—'}</td>
                   <td>{SOURCE_LABELS[p.source] || p.source}</td>
+                  <td>{CATEGORY_LABELS[categoryOf(p)] || '—'}</td>
                   <td>{p.priority}</td>
                   <td>{p.accountant_name || '—'}</td>
                   <td>
