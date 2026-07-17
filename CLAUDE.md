@@ -171,6 +171,26 @@ false positives), «pending» when something is still open, «none» when Margar
 has no record (then the manual kk_tasks mailing is used as a fallback / override).
 Only the «Рассылка» column changed; «Отчёт»/«Квитанция» still use kk_tasks.
 
+**Broaden salary «рассылка» auto-detection (0028).** Owner reported still marking
+the salary mailing by hand for many chats. The mailing rows are produced by
+`mqa_detect_mailings()` (Margarita's QA platform, cron every 2h) which scans
+accountant `messages` per active chat and upserts `mqa_chat_mailings` with
+`source='telegram'`. Measured over period 202607: ~197 salary chats auto-detected
+OK, ~160 blocked by the `on conflict … where source <> 'manual'` **manual lock**
+(a human mark is never overwritten — owner chose to KEEP that), and ~19 real
+salary sends fired NO salary regex branch. The gap was the salary "done" verb list
+missing the accountant's commonest send/payment verbs: «Направляю таблицу по
+заработным платам …» (`направля…`), «перечислил/переведена зарплату» , «произвели
+выплаты заработной платы». 0028 `create or replace`s `mqa_detect_mailings` adding
+those past-tense forms to the RU salary "done" branch (and to the shared
+`neg_done` guard so «не перевели …» is still suppressed); past-tense only, so the
+noun «перечислении» / imperative «направьте» / discussion questions don't match.
+Everything else (other categories, Armenian branches, windowing, the manual-lock
+upsert) is byte-identical to the live definition. Verified against live `messages`;
+detection re-run for 202607 auto-filled 7 previously-unmarked chats and left every
+manual row untouched. NOTE: this function canonically lives in the QA platform
+("repo #1"); the copy here must be ported there if the repos diverge.
+
 ## Accountant reaction loop + Margarita work report (0025 / 0026)
 
 After Margarita/Sona QA, every issue (a `kk_problems` row, source
