@@ -17,6 +17,11 @@
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (auto-injected in Supabase)
 //   TELEGRAM_BOT_TOKEN   — the ОК bot token from @BotFather
 //   TELEGRAM_CHAT_ID     — the ОК group/chat id (e.g. -1001234567890)
+//
+// If the Telegram secrets are not present in Deno.env (e.g. when the Supabase
+// CLI isn't available to run `secrets set`), they are read from the
+// service-role-only `kk_app_secrets` table (migration 0032). Deno.env always
+// wins when both are present.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -158,8 +163,20 @@ Deno.serve(async (req) => {
     }
     const text = lines.join('\n')
 
-    const token = Deno.env.get('TELEGRAM_BOT_TOKEN')
-    const chatId = Deno.env.get('TELEGRAM_CHAT_ID')
+    // Prefer function secrets (Deno.env); fall back to the service-role-only
+    // kk_app_secrets table when the CLI wasn't available to set secrets.
+    let token = Deno.env.get('TELEGRAM_BOT_TOKEN')
+    let chatId = Deno.env.get('TELEGRAM_CHAT_ID')
+    if (!token || !chatId) {
+      const { data: secrets } = await supabase
+        .from('kk_app_secrets')
+        .select('key, value')
+        .in('key', ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'])
+      for (const s of secrets ?? []) {
+        if (s.key === 'TELEGRAM_BOT_TOKEN' && !token) token = s.value as string
+        if (s.key === 'TELEGRAM_CHAT_ID' && !chatId) chatId = s.value as string
+      }
+    }
     if (!token || !chatId) {
       return new Response(JSON.stringify({ error: 'TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set', preview: text }), {
         status: 500,
