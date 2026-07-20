@@ -23,7 +23,7 @@ export default function App() {
   const [status, setStatus] = useState('loading')
   const [access, setAccess] = useState(null)
   const [authError, setAuthError] = useState(null)
-  // Mandatory "answer yesterday's tickets" gate: a regular accountant is blocked
+  // Mandatory "answer all your tickets" gate: a regular accountant is blocked
   // from the whole platform until it clears. Reset on every (re)login.
   const [gateCleared, setGateCleared] = useState(false)
 
@@ -101,7 +101,7 @@ export default function App() {
   const roleText = roleLabel(access?.role)
 
   // Mandatory gate: a regular accountant (never a supervisor/manager) sees
-  // NOTHING but the yesterday-tickets review until every ticket is answered.
+  // NOTHING but the all-tickets review until every ticket is answered.
   // No nav, no routes — the only way forward is to accept/appeal each ticket.
   const gated = !supervisor && !gateCleared
   if (gated) {
