@@ -188,6 +188,12 @@ describe('date periods (req 3)', () => {
   it('all = no lower bound', () => {
     expect(periodStart('all', now)).toBeNull()
   })
+  it('month = last 30 calendar days (Месяц pill for reports)', () => {
+    // 2026-07-08 - 29 days = 2026-06-09 00:00 Yerevan == 2026-06-08T20:00:00Z
+    expect(periodStart('month', now).toISOString()).toBe('2026-06-08T20:00:00.000Z')
+    expect(inPeriod(problem({ detected_at: '2026-06-20T09:00:00Z' }), 'month', now)).toBe(true)
+    expect(inPeriod(problem({ detected_at: '2026-05-01T09:00:00Z' }), 'month', now)).toBe(false)
+  })
   it('filters problems by detected_at', () => {
     expect(inPeriod(problem({ detected_at: '2026-07-08T09:00:00Z' }), 'today', now)).toBe(true)
     expect(inPeriod(problem({ detected_at: '2026-07-01T09:00:00Z' }), 'today', now)).toBe(false)

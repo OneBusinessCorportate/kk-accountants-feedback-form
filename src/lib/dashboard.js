@@ -228,6 +228,15 @@ export const PERIODS = [
   { key: 'all', label: 'Всё время' },
 ]
 
+// Reports («один отчёт … день / неделя / месяц») expose an extra «Месяц» pill on
+// top of the accountant-facing set. The Dashboard keeps its tighter set above.
+export const REPORT_PERIODS = [
+  { key: 'today', label: 'День' },
+  { key: 'week', label: 'Неделя' },
+  { key: 'month', label: 'Месяц' },
+  { key: 'all', label: 'Всё время' },
+]
+
 // Start of the local day, `daysBack` days ago, returned as a UTC Date.
 function localDayStart(now, daysBack) {
   const shifted = now.getTime() + TZ_OFFSET_MIN * 60000
@@ -241,6 +250,7 @@ export function periodStart(key, now = new Date()) {
   if (key === 'today') return localDayStart(now, 0)
   if (key === '2d') return localDayStart(now, 1) // today + yesterday
   if (key === 'week') return localDayStart(now, 6) // last 7 calendar days
+  if (key === 'month') return localDayStart(now, 29) // last 30 calendar days
   return null
 }
 

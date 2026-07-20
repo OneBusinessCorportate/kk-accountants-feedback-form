@@ -7,7 +7,7 @@ import {
   fetchSonaChecks,
   fetchPraise,
 } from '../lib/api'
-import { DASHBOARD_SOURCES, PERIODS, periodStart, inPeriod, formatDate } from '../lib/dashboard'
+import { DASHBOARD_SOURCES, REPORT_PERIODS, periodStart, inPeriod, formatDate } from '../lib/dashboard'
 import { buildWorkReport, buildSonaReport, MARGARITA_SOURCE } from '../lib/reports'
 import { buildQualityReport, urgentIssues } from '../lib/qualityReport'
 import { formatQualityReport } from '../lib/telegramReport'
@@ -96,7 +96,7 @@ export default function Reports() {
   const telegramPreview = useMemo(
     () =>
       formatQualityReport({
-        periodLabel: PERIODS.find((p) => p.key === period)?.label || 'за период',
+        periodLabel: REPORT_PERIODS.find((p) => p.key === period)?.label || 'за период',
         report: deptReport,
         urgent: urgentList,
         sona: sonaReport,
@@ -138,7 +138,7 @@ export default function Reports() {
       <p className="page-subtitle">
         Единый отчёт по качеству бухгалтерских услуг: по отделу и по каждому
         бухгалтеру — замечания, «ОЧЕНЬ СРОЧНО», похвалы, проверки Соны и Маргариты.
-        Обновляется по периоду (день / неделя / всё время).
+        Обновляется по периоду (день / неделя / месяц / всё время).
       </p>
 
       <div className="toolbar">
@@ -155,7 +155,7 @@ export default function Reports() {
       </div>
 
       <div className="period-pills">
-        {PERIODS.map(({ key, label }) => (
+        {REPORT_PERIODS.map(({ key, label }) => (
           <button
             key={key}
             className={`btn btn-sm ${period === key ? '' : 'btn-secondary'}`}
