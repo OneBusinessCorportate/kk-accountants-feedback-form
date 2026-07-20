@@ -8,6 +8,12 @@ import {
   isResolved,
   isCancelledViolation,
   penaltyOf,
+  summarizeSonaChecks,
+  sonaChecksByDay,
+  sonaChecksByAccountant,
+  buildSonaReport,
+  summarizePraise,
+  praiseByAccountant,
   summarizeChecks,
   checksByDay,
   checksByAccountant,
@@ -172,5 +178,66 @@ describe('checks aggregation', () => {
     expect(rows[0]).toEqual({ accountantName: 'Анна', chatsChecked: 1 })
     expect(rows.find((r) => r.accountantName === 'Борис').chatsChecked).toBe(1)
     expect(rows.find((r) => r.accountantName === '— Не распознан —').chatsChecked).toBe(0)
+  })
+})
+
+describe('Sona checks (kk_sona_checks)', () => {
+  const CHECKS = [
+    { chat_agr_no: 'C1', checking_date: '2026-07-10', record_type: 'problem', score_accountant: 4, accountant_name: 'Анна' },
+    { chat_agr_no: 'C1', checking_date: '2026-07-10', record_type: 'other', score_accountant: 5, accountant_name: 'Анна' },
+    { chat_agr_no: 'C2', checking_date: '2026-07-11', record_type: 'other', score_accountant: 3, accountant_name: 'Борис' },
+  ]
+
+  it('summarizes distinct companies, problems and clean checks', () => {
+    expect(summarizeSonaChecks(CHECKS)).toEqual({
+      companiesChecked: 2,
+      reviews: 3,
+      problems: 1,
+      clean: 2,
+    })
+  })
+
+  it('counts distinct companies per day, newest first', () => {
+    const rows = sonaChecksByDay(CHECKS)
+    expect(rows[0]).toEqual({ date: '2026-07-11', count: 1 })
+    expect(rows.find((r) => r.date === '2026-07-10').count).toBe(1)
+  })
+
+  it('per-accountant volume with average score', () => {
+    const rows = sonaChecksByAccountant(CHECKS)
+    const anna = rows.find((r) => r.accountantName === 'Анна')
+    expect(anna.companiesChecked).toBe(1)
+    expect(anna.problems).toBe(1)
+    expect(anna.clean).toBe(1)
+    expect(anna.avgScore).toBe(4.5)
+  })
+
+  it('buildSonaReport assembles the full report', () => {
+    const r = buildSonaReport({ checks: CHECKS })
+    expect(r.companiesChecked).toBe(2)
+    expect(r.byAccountant.length).toBe(2)
+    expect(r.checksByDay.length).toBe(2)
+  })
+
+  it('is safe on empty input', () => {
+    expect(summarizeSonaChecks()).toEqual({ companiesChecked: 0, reviews: 0, problems: 0, clean: 0 })
+  })
+})
+
+describe('praise (kk_praise)', () => {
+  const PRAISE = [
+    { accountant_id: 'a1', accountant_name: 'Анна', source: 'margarita_review' },
+    { accountant_id: 'a1', accountant_name: 'Анна', source: 'sona_review' },
+    { accountant_id: 'a2', accountant_name: 'Борис', source: 'margarita_review' },
+  ]
+
+  it('summarizes praise by source', () => {
+    expect(summarizePraise(PRAISE)).toEqual({ total: 3, margarita: 2, sona: 1 })
+  })
+
+  it('groups praise by accountant, most first', () => {
+    const rows = praiseByAccountant(PRAISE)
+    expect(rows[0]).toEqual({ accountantName: 'Анна', count: 2 })
+    expect(rows[1]).toEqual({ accountantName: 'Борис', count: 1 })
   })
 })

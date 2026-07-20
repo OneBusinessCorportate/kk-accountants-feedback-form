@@ -176,6 +176,99 @@ export function checksByAccountant(checks = []) {
     .sort((a, b) => b.chatsChecked - a.chatsChecked)
 }
 
+// ---- Sona's checked-companies volume (from kk_sona_checks) -----------------
+//
+// sqa_reviews rows: one per company checked per period. record_type='problem' is
+// a raised issue, record_type='other' is a clean check (no problem → positive).
+// «Companies checked» is the count of DISTINCT companies.
+
+export function summarizeSonaChecks(checks = []) {
+  const companies = new Set()
+  let problems = 0
+  let clean = 0
+  for (const c of checks) {
+    if (c.chat_agr_no) companies.add(c.chat_agr_no)
+    if (c.record_type === 'problem') problems += 1
+    else clean += 1
+  }
+  return { companiesChecked: companies.size, reviews: checks.length, problems, clean }
+}
+
+// Distinct companies checked by Sona per calendar day (of checking_date).
+export function sonaChecksByDay(checks = []) {
+  const map = new Map()
+  for (const c of checks) {
+    const day = c.checking_date ? String(c.checking_date).slice(0, 10) : null
+    if (!day) continue
+    if (!map.has(day)) map.set(day, new Set())
+    if (c.chat_agr_no) map.get(day).add(c.chat_agr_no)
+  }
+  return [...map.entries()]
+    .map(([date, set]) => ({ date, count: set.size }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+}
+
+// Per-accountant Sona volume: companies checked, problems raised, clean checks
+// and the average accountant score she gave.
+export function sonaChecksByAccountant(checks = []) {
+  const map = new Map()
+  for (const c of checks) {
+    const name = c.accountant_name || '— Не распознан —'
+    if (!map.has(name)) {
+      map.set(name, { accountantName: name, companies: new Set(), problems: 0, clean: 0, scoreSum: 0, scoreN: 0 })
+    }
+    const row = map.get(name)
+    if (c.chat_agr_no) row.companies.add(c.chat_agr_no)
+    if (c.record_type === 'problem') row.problems += 1
+    else row.clean += 1
+    const s = Number(c.score_accountant)
+    if (Number.isFinite(s)) {
+      row.scoreSum += s
+      row.scoreN += 1
+    }
+  }
+  return [...map.values()]
+    .map((r) => ({
+      accountantName: r.accountantName,
+      companiesChecked: r.companies.size,
+      problems: r.problems,
+      clean: r.clean,
+      avgScore: r.scoreN ? Math.round((r.scoreSum / r.scoreN) * 10) / 10 : null,
+    }))
+    .sort((a, b) => b.companiesChecked - a.companiesChecked)
+}
+
+// Sona work report — her analogue of buildWorkReport (req: «отчёт по работе
+// Соны»). `checks` are kk_sona_checks rows scoped to the period.
+export function buildSonaReport({ checks = [] } = {}) {
+  const s = summarizeSonaChecks(checks)
+  return {
+    ...s,
+    checksByDay: sonaChecksByDay(checks),
+    byAccountant: sonaChecksByAccountant(checks),
+  }
+}
+
+// ---- Praise («похвала») ----------------------------------------------------
+
+export function summarizePraise(praise = []) {
+  return {
+    total: praise.length,
+    margarita: praise.filter((p) => p.source === 'margarita_review').length,
+    sona: praise.filter((p) => p.source === 'sona_review').length,
+  }
+}
+
+export function praiseByAccountant(praise = []) {
+  const map = new Map()
+  for (const p of praise) {
+    const key = p.accountant_id || p.accountant_name || '—'
+    if (!map.has(key)) map.set(key, { accountantName: p.accountant_name || '—', count: 0 })
+    map.get(key).count += 1
+  }
+  return [...map.values()].sort((a, b) => b.count - a.count)
+}
+
 // Top-level workload figures for Margarita's work report (req 1/2). `problems`
 // should already be scoped to her review source(s); `appeals`/`acks` are the
 // slices that dispute / acknowledge those issues; `checks` are her per-chat

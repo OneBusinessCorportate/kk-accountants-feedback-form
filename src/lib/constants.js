@@ -67,6 +67,43 @@ export const PRIORITY_LABELS = {
   3: 'Низкий',
 }
 
+// Ticket urgency shown to the accountant (task requirement: «должен быть
+// приоритет тикетов и что исправить ОЧЕНЬ СРОЧНО»). Derived in dashboard.js from
+// the priority + working-hours SLA, so it needs no schema change:
+//   critical — highest priority AND already overdue → fix RIGHT NOW
+//   high     — highest priority, still within SLA
+//   normal   — everything else
+export const URGENCY = { critical: 'critical', high: 'high', normal: 'normal' }
+
+export const URGENCY_LABELS = {
+  critical: 'ОЧЕНЬ СРОЧНО',
+  high: 'Срочно',
+  normal: 'Обычный',
+}
+
+export const URGENCY_BADGE = {
+  critical: 'badge-red',
+  high: 'badge-amber',
+  normal: 'badge-gray',
+}
+
+// A QA result is either a problem (a ticket the accountant must act on), praise
+// (a positive result — never a ticket, owner rule «если позитивно всё … может
+// быть похвала»), or other. Praise rows come from kk_praise (migration 0030).
+export const FEEDBACK_TYPE = { problem: 'problem', praise: 'praise', other: 'other' }
+
+export const FEEDBACK_TYPE_LABELS = {
+  problem: 'Проблема',
+  praise: 'Похвала',
+  other: 'Другое',
+}
+
+export const FEEDBACK_TYPE_BADGE = {
+  problem: 'badge-red',
+  praise: 'badge-green',
+  other: 'badge-gray',
+}
+
 // Reviewer's verdict on whether a detected problem was TRULY problematic — the
 // learning signal that lets the ingestion filter out false positives.
 export const VERDICT = {

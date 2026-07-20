@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchProblems, fetchChats, fetchTasks } from '../lib/api'
+import { fetchProblems, fetchChats, fetchTasks, fetchPraise } from '../lib/api'
 import {
   DASHBOARD_SOURCES,
   PERIODS,
@@ -8,8 +8,9 @@ import {
   formatDate,
   formatBusinessAge,
   isOverdue,
+  urgencyLevel,
 } from '../lib/dashboard'
-import { SOURCE_LABELS } from '../lib/constants'
+import { SOURCE_LABELS, URGENCY, URGENCY_LABELS, URGENCY_BADGE } from '../lib/constants'
 import { keepOwnProblems } from '../lib/scope'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage, Empty } from '../components/States'
@@ -21,6 +22,7 @@ function localToday() {
 // The clickable categories. Each maps to a slice of the prepared data. `sel`
 // pulls the matching list out of prepareDashboard()'s result.
 const CATEGORIES = [
+  { key: 'urgent', label: 'ОЧЕНЬ СРОЧНО', sel: (d) => d.byCategory.urgent, alert: true },
   { key: 'total', label: 'Все активные', sel: (d) => d.active },
   { key: 'violation', label: 'Нарушения', sel: (d) => d.byCategory.violation },
   { key: 'quality', label: 'Оценка качества', sel: (d) => d.byCategory.quality },
@@ -35,6 +37,7 @@ export default function Dashboard() {
   const [problems, setProblems] = useState([])
   const [chats, setChats] = useState([])
   const [tasks, setTasks] = useState([])
+  const [praise, setPraise] = useState([])
   const [period, setPeriod] = useState('week')
   const [active, setActive] = useState(null) // selected category key, or null
   const [loading, setLoading] = useState(true)
@@ -49,12 +52,14 @@ export default function Dashboard() {
       fetchProblems({ sourceIn: DASHBOARD_SOURCES }),
       fetchChats().catch(() => []),
       fetchTasks(canManage ? {} : { accountantId: access?.employee_id }),
+      fetchPraise(canManage ? {} : { accountantId: access?.employee_id }).catch(() => []),
     ])
-      .then(([p, c, t]) => {
+      .then(([p, c, t, pr]) => {
         if (!alive) return
         setProblems(keepOwnProblems(p, access))
         setChats(c)
         setTasks(t)
+        setPraise(pr)
       })
       .catch((e) => alive && setError(e))
       .finally(() => alive && setLoading(false))
@@ -151,6 +156,10 @@ export default function Dashboard() {
               <div className="num">{new Set(data.active.map((p) => p.client_name)).size}</div>
               <div className="label">Клиенты</div>
             </Link>
+            <div className="stat" title="Положительные результаты проверки качества — не тикеты">
+              <div className="num" style={{ color: 'var(--green, #16a34a)' }}>👍 {praise.length}</div>
+              <div className="label">Похвалы (позитив)</div>
+            </div>
           </div>
 
           {/* Drill-down: only the chosen category, nothing before a click. */}
@@ -212,7 +221,21 @@ function ProblemTable({ rows, showReason }) {
                     </span>
                   )}
                 </td>
-                <td>{p.problem_title || '—'}</td>
+                <td>
+                  {!showReason &&
+                    (() => {
+                      const u = p.urgency || urgencyLevel(p)
+                      return u !== URGENCY.normal ? (
+                        <span
+                          className={`badge ${URGENCY_BADGE[u]}`}
+                          style={{ marginRight: 6 }}
+                        >
+                          {URGENCY_LABELS[u]}
+                        </span>
+                      ) : null
+                    })()}
+                  {p.problem_title || '—'}
+                </td>
                 <td>{(p.sources || [p.source]).map((s) => SOURCE_LABELS[s] || s).join(', ')}</td>
                 <td>
                   {p.accountant_name || <span style={{ color: 'var(--muted)' }}>не определён</span>}

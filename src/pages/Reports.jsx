@@ -1,9 +1,27 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
-import { fetchProblems, fetchAppeals, fetchAcknowledgements, fetchMargaritaChecks } from '../lib/api'
+import {
+  fetchProblems,
+  fetchAppeals,
+  fetchAcknowledgements,
+  fetchMargaritaChecks,
+  fetchSonaChecks,
+  fetchPraise,
+} from '../lib/api'
 import { DASHBOARD_SOURCES, PERIODS, periodStart, inPeriod, formatDate } from '../lib/dashboard'
-import { buildWorkReport, MARGARITA_SOURCE } from '../lib/reports'
+import { buildWorkReport, buildSonaReport, MARGARITA_SOURCE } from '../lib/reports'
+import { buildQualityReport, urgentIssues } from '../lib/qualityReport'
+import { formatQualityReport } from '../lib/telegramReport'
 import StatusBadge from '../components/StatusBadge'
 import { Loading, ErrorMessage, Empty } from '../components/States'
+
+// Scope selector: one combined department report (the daily «один отчёт по
+// отделу и по каждому бухгалтеру»), or the individual work reports.
+const SCOPES = [
+  { key: 'department', label: 'Отдел (общий отчёт)' },
+  { key: 'sona', label: 'Работа Соны' },
+  { key: 'margarita', label: 'Работа Маргариты' },
+  { key: 'all', label: 'Все проверки качества' },
+]
 
 function fmtMoney(n) {
   if (!n) return '0'
@@ -19,10 +37,12 @@ export default function Reports() {
   const [appeals, setAppeals] = useState([])
   const [acks, setAcks] = useState([])
   const [checks, setChecks] = useState([])
+  const [sonaChecks, setSonaChecks] = useState([])
+  const [praise, setPraise] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [period, setPeriod] = useState('all')
-  const [scope, setScope] = useState('margarita') // 'margarita' | 'all'
+  const [scope, setScope] = useState('department')
   const [expanded, setExpanded] = useState(null)
 
   useEffect(() => {
@@ -32,16 +52,57 @@ export default function Reports() {
       fetchAppeals(),
       fetchAcknowledgements(),
       fetchMargaritaChecks().catch(() => []),
+      fetchSonaChecks().catch(() => []),
+      fetchPraise().catch(() => []),
     ])
-      .then(([p, ap, ac, ch]) => {
+      .then(([p, ap, ac, ch, sc, pr]) => {
         setProblems(p)
         setAppeals(ap)
         setAcks(ac)
         setChecks(ch)
+        setSonaChecks(sc)
+        setPraise(pr)
       })
       .catch(setError)
       .finally(() => setLoading(false))
   }, [])
+
+  // Period-scoped slices shared by the department + Sona reports.
+  const scoped = useMemo(() => {
+    const now = new Date()
+    const start = periodStart(period, now)
+    const afterStart = (d) => !start || (d && new Date(d) >= start)
+    return {
+      problems: problems.filter((p) => inPeriod(p, period, now)),
+      praise: praise.filter((p) => afterStart(p.detected_at || p.created_at)),
+      sonaChecks: sonaChecks.filter((c) => afterStart(c.checking_date)),
+      margaritaChecks: checks.filter((c) => afterStart(c.checking_date)),
+    }
+  }, [problems, praise, sonaChecks, checks, period])
+
+  const deptReport = useMemo(
+    () =>
+      buildQualityReport({
+        problems: scoped.problems,
+        praise: scoped.praise,
+        sonaChecks: scoped.sonaChecks,
+        margaritaChecks: scoped.margaritaChecks,
+        now: new Date(),
+      }),
+    [scoped],
+  )
+  const urgentList = useMemo(() => urgentIssues(scoped.problems, new Date()), [scoped.problems])
+  const sonaReport = useMemo(() => buildSonaReport({ checks: scoped.sonaChecks }), [scoped.sonaChecks])
+  const telegramPreview = useMemo(
+    () =>
+      formatQualityReport({
+        periodLabel: PERIODS.find((p) => p.key === period)?.label || 'за период',
+        report: deptReport,
+        urgent: urgentList,
+        sona: sonaReport,
+      }),
+    [deptReport, urgentList, sonaReport, period],
+  )
 
   const report = useMemo(() => {
     const now = new Date()
@@ -69,21 +130,26 @@ export default function Reports() {
   }, [problems, appeals, acks, checks, period, scope])
 
   const isMargarita = scope === 'margarita'
+  const isLegacy = scope === 'margarita' || scope === 'all'
 
   return (
     <div>
       <h1 className="page-title">Отчёты</h1>
       <p className="page-subtitle">
-        Объём проверок Маргариты и статус по каждому бухгалтеру: проверенные чаты,
-        замечания, апелляции, ознакомления, штрафы и открытые вопросы.
+        Единый отчёт по качеству бухгалтерских услуг: по отделу и по каждому
+        бухгалтеру — замечания, «ОЧЕНЬ СРОЧНО», похвалы, проверки Соны и Маргариты.
+        Обновляется по периоду (день / неделя / всё время).
       </p>
 
       <div className="toolbar">
         <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
           <label>Источник</label>
           <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="margarita">Только проверки Маргариты</option>
-            <option value="all">Все проверки качества</option>
+            {SCOPES.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -106,6 +172,14 @@ export default function Reports() {
         <Loading />
       ) : (
         <>
+          {/* Department combined report — one report by department + per accountant. */}
+          {scope === 'department' && (
+            <DepartmentReport report={deptReport} urgent={urgentList} telegram={telegramPreview} />
+          )}
+
+          {/* Sona work report — «Объём работы Соны». */}
+          {scope === 'sona' && <SonaReport report={sonaReport} />}
+
           {/* A. General Margarita work-volume card (req 2) with the exact wording. */}
           {isMargarita && (
             <div className="card" style={{ marginTop: 8 }}>
@@ -145,7 +219,7 @@ export default function Reports() {
             </div>
           )}
 
-          {!isMargarita && (
+          {scope === 'all' && (
             <div className="stat-grid" style={{ marginTop: 8 }}>
               <div className="stat">
                 <div className="num">{report.issuesCreated}</div>
@@ -175,7 +249,8 @@ export default function Reports() {
           )}
 
           {/* B. Report by each accountant (req 1/5). */}
-          <h2 className="section-label" style={{ marginTop: 24 }}>По бухгалтерам</h2>
+          {isLegacy && (
+          <><h2 className="section-label" style={{ marginTop: 24 }}>По бухгалтерам</h2>
           {report.byAccountant.length === 0 ? (
             <Empty text="Нет данных за выбранный период." />
           ) : (
@@ -343,6 +418,8 @@ export default function Reports() {
               </table>
             </div>
           )}
+          </>
+          )}
         </>
       )}
     </div>
@@ -363,4 +440,175 @@ function mergeDays(report, includeChecks) {
   add(report.issuesByDay, 'issues')
   add(report.appealsByDay, 'appeals')
   return [...days.values()].sort((a, b) => (a.date < b.date ? 1 : -1))
+}
+
+// ---- Combined department report --------------------------------------------
+// One report for the whole department + each accountant, merging problems,
+// praise and checks (Sona + Margarita), plus the «ОЧЕНЬ СРОЧНО» list and a
+// preview of the Telegram message sent daily / weekly to ОК.
+function DepartmentReport({ report, urgent, telegram }) {
+  const d = report.department
+  return (
+    <>
+      <div className="card" style={{ marginTop: 8 }}>
+        <h2 className="section-label" style={{ marginTop: 0 }}>По отделу</h2>
+        <div className="stat-grid">
+          <div className="stat"><div className="num">{d.issues}</div><div className="label">Замечаний</div></div>
+          <div className="stat"><div className="num">{d.open}</div><div className="label">Открыто</div></div>
+          <div className={`stat ${d.urgent > 0 ? 'stat-alert' : ''}`}><div className="num">{d.urgent}</div><div className="label">ОЧЕНЬ СРОЧНО</div></div>
+          <div className="stat"><div className="num" style={{ color: 'var(--green,#16a34a)' }}>{d.praise}</div><div className="label">Похвалы</div></div>
+          <div className="stat"><div className="num">{d.checkedBySona}</div><div className="label">Проверено (Сона)</div></div>
+          <div className="stat"><div className="num">{d.checkedByMargarita}</div><div className="label">Проверено (Маргарита)</div></div>
+        </div>
+      </div>
+
+      {urgent.length > 0 && (
+        <>
+          <h2 className="section-label" style={{ marginTop: 24, color: 'var(--red,#dc2626)' }}>
+            🔴 ОЧЕНЬ СРОЧНО — {urgent.length}
+          </h2>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Проблема</th><th>Клиент</th><th>Бухгалтер</th><th>Дата</th><th>Чат</th></tr>
+              </thead>
+              <tbody>
+                {urgent.map((p) => (
+                  <tr key={p.problem_id} style={{ background: '#fff5f5' }}>
+                    <td>{p.problem_title || '—'}</td>
+                    <td>{p.client_name || '—'}</td>
+                    <td>{p.accountant_name || '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{formatDate(p.detected_at)}</td>
+                    <td>{p.chat_link ? <a href={p.chat_link} target="_blank" rel="noreferrer">→ чат</a> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>По бухгалтерам</h2>
+      {report.byAccountant.length === 0 ? (
+        <Empty text="Нет данных за выбранный период." />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Бухгалтер</th>
+                <th>Замечания</th>
+                <th>Открыто</th>
+                <th>ОЧЕНЬ СРОЧНО</th>
+                <th>Похвалы</th>
+                <th>Провер. (Сона)</th>
+                <th>Провер. (Марг.)</th>
+                <th>Баланс</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.byAccountant.map((r) => (
+                <tr key={r.accountantName}>
+                  <td><b>{r.accountantName}</b></td>
+                  <td>{r.issues}</td>
+                  <td>{r.open > 0 ? <span className="badge badge-amber">{r.open}</span> : <span className="badge badge-green">0</span>}</td>
+                  <td>{r.urgent > 0 ? <span className="badge badge-red">{r.urgent}</span> : 0}</td>
+                  <td style={{ color: 'var(--green,#16a34a)' }}>{r.praise}</td>
+                  <td>{r.checkedBySona}</td>
+                  <td>{r.checkedByMargarita}</td>
+                  <td style={{ color: r.balance < 0 ? 'var(--red,#dc2626)' : 'var(--green,#16a34a)', fontWeight: 600 }}>
+                    {r.balance > 0 ? `+${r.balance}` : r.balance}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>Предпросмотр отчёта для Telegram (ОК)</h2>
+      <p className="hint" style={{ marginTop: 0 }}>
+        Так выглядит сообщение, которое автоматически отправляется в группу ОК
+        ежедневно (вечером) и еженедельно. Настройка отправки — в{' '}
+        <code>supabase/functions/quality-report-telegram</code>.
+      </p>
+      <pre
+        style={{
+          whiteSpace: 'pre-wrap',
+          background: 'var(--bg-soft,#f8f8f8)',
+          padding: 14,
+          borderRadius: 8,
+          fontSize: 13,
+          lineHeight: 1.5,
+        }}
+      >
+        {telegram.replace(/<\/?b>/g, '')}
+      </pre>
+    </>
+  )
+}
+
+// ---- Sona work report («Объём работы Соны») --------------------------------
+function SonaReport({ report }) {
+  return (
+    <>
+      <div className="card" style={{ marginTop: 8 }}>
+        <h2 className="section-label" style={{ marginTop: 0 }}>Объём работы Соны</h2>
+        <div className="stat-grid">
+          <div className="stat"><div className="num">{report.companiesChecked}</div><div className="label">Проверено компаний</div></div>
+          <div className="stat"><div className="num">{report.reviews}</div><div className="label">Всего проверок</div></div>
+          <div className="stat"><div className="num">{report.problems}</div><div className="label">С замечаниями</div></div>
+          <div className="stat"><div className="num" style={{ color: 'var(--green,#16a34a)' }}>{report.clean}</div><div className="label">Без замечаний</div></div>
+        </div>
+      </div>
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>По бухгалтерам</h2>
+      {report.byAccountant.length === 0 ? (
+        <Empty text="Нет данных за выбранный период." />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Бухгалтер</th>
+                <th>Проверено компаний</th>
+                <th>С замечаниями</th>
+                <th>Без замечаний</th>
+                <th>Ср. оценка</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.byAccountant.map((r) => (
+                <tr key={r.accountantName}>
+                  <td><b>{r.accountantName}</b></td>
+                  <td>{r.companiesChecked}</td>
+                  <td>{r.problems}</td>
+                  <td style={{ color: 'var(--green,#16a34a)' }}>{r.clean}</td>
+                  <td>{r.avgScore ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <h2 className="section-label" style={{ marginTop: 24 }}>По датам</h2>
+      {report.checksByDay.length === 0 ? (
+        <Empty text="Нет данных." />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Дата</th><th>Проверено компаний</th></tr>
+            </thead>
+            <tbody>
+              {report.checksByDay.map((d) => (
+                <tr key={d.date}><td>{formatDate(d.date)}</td><td>{d.count}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
 }

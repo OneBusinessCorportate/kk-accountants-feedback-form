@@ -18,6 +18,9 @@ import {
   businessMinutesBetween,
   businessHoursBetween,
   isOverdue,
+  urgencyLevel,
+  isVeryUrgent,
+  URGENCY,
   prepareDashboard,
   groupClients,
   classifyMailingStatus,
@@ -327,5 +330,40 @@ describe('groupClients (no duplicate clients)', () => {
     expect(acme.sources.sort()).toEqual(['margarita_review', 'sona_review'])
     expect(acme.chats).toHaveLength(1)
     expect(acme.contracts).toEqual(['B-100'])
+  })
+})
+
+describe('urgency («ОЧЕНЬ СРОЧНО»)', () => {
+  const NOW = new Date('2026-07-10T12:00:00Z')
+  const OLD = '2026-07-01T08:00:00Z' // many working hours ago
+  const FRESH = '2026-07-10T11:30:00Z'
+
+  it('priority 1 + overdue → critical', () => {
+    expect(urgencyLevel({ priority: 1, detected_at: OLD }, NOW)).toBe(URGENCY.critical)
+    expect(isVeryUrgent({ priority: 1, detected_at: OLD }, NOW)).toBe(true)
+  })
+
+  it('priority 1 but still within SLA → high, not critical', () => {
+    expect(urgencyLevel({ priority: 1, detected_at: FRESH }, NOW)).toBe(URGENCY.high)
+    expect(isVeryUrgent({ priority: 1, detected_at: FRESH }, NOW)).toBe(false)
+  })
+
+  it('a low-priority fresh item is normal', () => {
+    expect(urgencyLevel({ priority: 3, detected_at: FRESH }, NOW)).toBe(URGENCY.normal)
+  })
+
+  it('a lower-priority item that is badly overdue is still flagged high', () => {
+    expect(urgencyLevel({ priority: 2, detected_at: OLD }, NOW)).toBe(URGENCY.high)
+  })
+
+  it('prepareDashboard exposes an urgent category + count', () => {
+    const problems = [
+      { problem_id: 'u1', source: 'margarita_review', accountant_id: 'a1', accountant_name: 'A', priority: 1, detected_at: OLD, chat_link: 'https://t.me/x', contract_id: 'B-1' },
+    ]
+    const chats = [{ agr_no: 'B-1', chat_link: 'https://t.me/x', status: 'Active' }]
+    const d = prepareDashboard({ problems, chats, period: 'all', now: NOW })
+    expect(d.counts.urgent).toBe(1)
+    expect(d.byCategory.urgent).toHaveLength(1)
+    expect(d.active[0].urgency).toBe(URGENCY.critical)
   })
 })

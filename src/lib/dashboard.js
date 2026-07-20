@@ -366,6 +366,27 @@ export function isOverdue(problem, now = new Date()) {
   return businessHoursBetween(from, now) > target
 }
 
+// ---- urgency («ОЧЕНЬ СРОЧНО») ----------------------------------------------
+// Task requirement: the accountant must see WHAT to fix VERY URGENTLY, on top of
+// the plain priority. We derive urgency from the existing priority + the
+// working-hours SLA (no schema change): the top-priority items that have already
+// breached their SLA are «ОЧЕНЬ СРОЧНО» (fix now); top-priority still in time are
+// «Срочно»; everything else is normal.
+export const URGENCY = { critical: 'critical', high: 'high', normal: 'normal' }
+
+export function urgencyLevel(problem, now = new Date()) {
+  if (Number(problem?.priority) === 1) {
+    return isOverdue(problem, now) ? URGENCY.critical : URGENCY.high
+  }
+  // A lower-priority item that has aged well past its SLA is still urgent.
+  if (isOverdue(problem, now)) return URGENCY.high
+  return URGENCY.normal
+}
+
+export function isVeryUrgent(problem, now = new Date()) {
+  return urgencyLevel(problem, now) === URGENCY.critical
+}
+
 // Human working-hours age, e.g. "3 раб. ч" / "2 раб. дн".
 export function formatBusinessAge(value, now = new Date()) {
   if (!value) return ''
@@ -417,7 +438,12 @@ export function prepareDashboard({ problems = [], chats = [], period = 'all', no
       })
       continue
     }
-    active.push({ ...p, category: categoryOf(p), sla: isSlaProblem(p) })
+    active.push({
+      ...p,
+      category: categoryOf(p),
+      sla: isSlaProblem(p),
+      urgency: urgencyLevel(p, now),
+    })
   }
 
   const byCategory = {
@@ -426,6 +452,7 @@ export function prepareDashboard({ problems = [], chats = [], period = 'all', no
     sona: active.filter((p) => p.category === CATEGORY.sona),
     sla: active.filter((p) => p.sla),
     overdue: active.filter((p) => isOverdue(p, now)),
+    urgent: active.filter((p) => p.urgency === URGENCY.critical),
   }
 
   return {
@@ -440,6 +467,7 @@ export function prepareDashboard({ problems = [], chats = [], period = 'all', no
       sona: byCategory.sona.length,
       sla: byCategory.sla.length,
       overdue: byCategory.overdue.length,
+      urgent: byCategory.urgent.length,
       needsReview: needsReview.length,
     },
   }

@@ -56,6 +56,30 @@ export async function fetchMargaritaChecks() {
   )
 }
 
+// Sona's per-review scorecards (sqa_reviews), the true record of how many
+// companies she actually checked. Exposed read-only via the kk_sona_checks view
+// (migration 0030). Powers «Объём работы Соны» (checked / by day / by
+// accountant) — the Sona analogue of fetchMargaritaChecks.
+export async function fetchSonaChecks() {
+  return unwrap(
+    await supabase
+      .from('kk_sona_checks')
+      .select(
+        'id, chat_agr_no, checking_date, period, record_type, score_accountant, risk_level, report_type, efficiency_pct, accountant_name, accountant_id',
+      ),
+  )
+}
+
+// Positive QA results («похвала») — good Margarita evaluations + clean Sona
+// reviews. Additive to kk_problems: never a ticket, only counted in reports and
+// shown as encouragement. Read-only from kk_praise (migration 0030).
+export async function fetchPraise(filters = {}) {
+  let query = supabase.from('kk_praise').select('*').order('detected_at', { ascending: false })
+  if (filters.accountantId) query = query.eq('accountant_id', filters.accountantId)
+  if (filters.source) query = query.eq('source', filters.source)
+  return unwrap(await query)
+}
+
 export async function fetchProblemById(problemId) {
   return unwrap(
     await supabase.from('kk_problems').select('*').eq('problem_id', problemId).single(),

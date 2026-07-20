@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchProblems, fetchChats, fetchAccountants, submitAccountantFeedback, fetchSonaComments, addSonaComment, uploadFeedbackAttachment, acknowledgeProblem, submitAppeal, fetchAppealsForProblem, fetchAppeals, fetchViolationWorkflow, fetchViolationWorkflowForProblem, acknowledgeViolation, appealViolation } from '../lib/api'
 import { AttachmentList, AttachmentPicker } from '../components/Attachments'
-import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS, APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE } from '../lib/constants'
+import { ACCOUNTANT_ACTIONABLE, SOURCE_LABELS, APPEAL_STATUS_LABELS, APPEAL_STATUS_BADGE, URGENCY, URGENCY_LABELS, URGENCY_BADGE } from '../lib/constants'
 import { isMargaritaProblem, interpretWorkflow, indexWorkflow } from '../lib/violationWorkflow'
 import { isConfirmedTicket, summarizeMyViolations } from '../lib/violationReport'
 import { MARGARITA_SOURCE } from '../lib/reports'
@@ -14,6 +14,7 @@ import {
   prepareDashboard,
   formatDate,
   isOverdue,
+  urgencyLevel,
 } from '../lib/dashboard'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { useAuth } from '../lib/AuthContext'
@@ -685,6 +686,14 @@ function ProblemFeedbackCard({ problem, workflowRow = null, onSaved }) {
       <div className="card-head-line">
         <div className="head-left">
           <h3 className="card-title">
+            {(() => {
+              const u = urgencyLevel(problem)
+              return u !== URGENCY.normal ? (
+                <span className={`badge ${URGENCY_BADGE[u]}`} style={{ marginRight: 8 }}>
+                  {URGENCY_LABELS[u]}
+                </span>
+              ) : null
+            })()}
             {problem.problem_title || problem.problem_id}
             {problem.client_name && (
               <span className="title-client">

@@ -341,6 +341,39 @@ code-only and reads use the anon key.
 - UI: `components/LoginScreen.jsx`, `LoadingScreen.jsx`, `ErrorScreen.jsx` (plain CSS,
   no Tailwind/icon deps — adapted from the dashboard equivalents).
 
+## Sona work report + praise + «ОЧЕНЬ СРОЧНО» + Telegram (0030 / 0031)
+
+Implements the «форма для Соны, отчёт по КК и уведомление в Telegram» task
+(status: `docs/SONA_QC_TASK_STATUS.md`; Telegram deploy: `docs/TELEGRAM_REPORT_SETUP.md`).
+
+- **`kk_sona_checks` (view, 0030)** — read-only projection of Sona's reviews
+  (`sqa_reviews`, repo #1) with the accountant resolved via `kk_accountant_aliases`
+  (same pattern as `kk_margarita_checks`). Powers the **Sona work report** («Объём
+  работы Соны»): companies checked, with/without remarks, by day, by accountant,
+  avg score. JS: `buildSonaReport()` in `reports.js`; `fetchSonaChecks()` in `api.js`.
+- **Praise / «похвала» (0030)** — owner rule «если позитивно всё … может быть
+  похвала, а не тикет». `kk_praise` table + `kk_ingest_praise()` are **additive** and
+  never touch `kk_ingest_problems()`: good Margarita evaluations («Хорошо»/«Отлично»)
+  + clean Sona reviews (`record_type='other'`) → praise rows (never tickets). Cron
+  every 30 min. `FEEDBACK_TYPE` in `constants.js`; `fetchPraise()`; shown as
+  «Похвалы» on the dashboard and in reports. Only rows resolving to a real employee.
+- **«ОЧЕНЬ СРОЧНО» urgency** — `urgencyLevel()` / `isVeryUrgent()` in `dashboard.js`,
+  derived from priority + working-hours SLA (NO schema change): priority 1 + overdue
+  = `critical`. Surfaced as a red badge on the dashboard, the accountant card, the
+  report and the Telegram message; `prepareDashboard()` adds a `urgent` category.
+- **Combined department report (`qualityReport.js`)** — `buildQualityReport()` fuses
+  problems + praise + Sona/Margarita checks into ONE report by department and by
+  accountant (task req: «один отчёт по отделу и по каждому бухгалтеру»), period-aware
+  (day/week/all). `/reports` gained the «Отдел (общий отчёт)» and «Работа Соны» tabs.
+- **Telegram (0031 + edge fn)** — `telegramReport.js` (pure, tested) is the message
+  spec; `supabase/functions/quality-report-telegram/` fetches + aggregates + sends;
+  `0031` schedules it daily (Пн–Пт 19:30) + weekly (Пн 09:30 Yerevan) via pg_cron +
+  pg_net. `0031` is a no-op until `app.edge_base_url` / `app.edge_auth` are set, and
+  the function needs `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` secrets (not in git).
+
+Cross-repo TODO (repo #1 = Sona's QA platform): the Sona INPUT form (company select
+→ pulled accountant/forms) and the after-3rd-check «что улучшить» survey live there.
+
 ## Commands
 
 - `npm run dev` — local dev server
