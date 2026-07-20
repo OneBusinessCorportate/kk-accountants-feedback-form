@@ -16,8 +16,9 @@
 -- and set the function's own secrets (bot token + chat id):
 --   supabase secrets set TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=...
 --
--- Schedule (Asia/Yerevan = UTC+4): daily at 19:30 local = 15:30 UTC (after the
--- working day / Sona's checks); weekly summary Monday 09:30 local = 05:30 UTC.
+-- Schedule (Asia/Yerevan = UTC+4): daily EVERY day at 20:00 local = 16:00 UTC
+-- (owner decision — a notification every evening); weekly summary Monday 09:30
+-- local = 05:30 UTC.
 
 do $$
 declare
@@ -37,12 +38,12 @@ begin
     return;
   end if;
 
-  -- Daily (every working day; cron has no "working day", so run Mon–Fri).
+  -- Daily — every day at 20:00 Yerevan (16:00 UTC).
   if exists (select 1 from cron.job where jobname = 'kk_quality_report_daily') then
     perform cron.unschedule('kk_quality_report_daily');
   end if;
   perform cron.schedule(
-    'kk_quality_report_daily', '30 15 * * 1-5',
+    'kk_quality_report_daily', '0 16 * * *',
     format(
       $cron$select net.http_post(
         url := %L,
@@ -63,5 +64,5 @@ begin
       );$cron$,
       base || '/quality-report-telegram?period=weekly', auth));
 
-  raise notice 'quality-report-telegram cron scheduled (daily 19:30, weekly Mon 09:30 Yerevan).';
+  raise notice 'quality-report-telegram cron scheduled (daily 20:00, weekly Mon 09:30 Yerevan).';
 end $$;

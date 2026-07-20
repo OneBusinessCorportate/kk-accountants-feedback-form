@@ -88,10 +88,11 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const [{ data: problems }, { data: praise }, { data: sona }] = await Promise.all([
+    const [{ data: problems }, { data: praise }, { data: sona }, { data: marg }] = await Promise.all([
       supabase.from('kk_problems').select('*').in('source', ['margarita_review', 'sona_review']),
       supabase.from('kk_praise').select('accountant_id, accountant_name, source, detected_at, created_at'),
       supabase.from('kk_sona_checks').select('chat_agr_no, checking_date, record_type'),
+      supabase.from('kk_margarita_checks').select('chat_agr_no, checking_date'),
     ])
 
     const scopedProblems = (problems ?? []).filter(
@@ -99,6 +100,7 @@ Deno.serve(async (req) => {
     )
     const scopedPraise = (praise ?? []).filter((p: any) => afterStart(p.detected_at || p.created_at))
     const scopedSona = (sona ?? []).filter((c: any) => afterStart(c.checking_date))
+    const scopedMarg = (marg ?? []).filter((c: any) => afterStart(c.checking_date))
 
     // Aggregate per accountant.
     const map = new Map<string, any>()
@@ -129,17 +131,47 @@ Deno.serve(async (req) => {
       (a, b) => +new Date(a.detected_at || a.created_at) - +new Date(b.detected_at || b.created_at),
     )
     const sonaCompanies = new Set(scopedSona.map((c: any) => c.chat_agr_no).filter(Boolean)).size
-    const sonaProblems = scopedSona.filter((c: any) => c.record_type === 'problem').length
+    const margChats = new Set(scopedMarg.map((c: any) => c.chat_agr_no).filter(Boolean)).size
+    const deptIssues = scopedProblems.length
+
+    // Verdict — mirrors reportVerdict() in src/lib/telegramReport.js. NO activity
+    // is itself bad; a green «всё хорошо» appears ONLY when checks were done AND
+    // nothing is open. Worst → best: no_control / urgent / open / resolved / clean.
+    const totalChecks = sonaCompanies + margChats
+    let head = '🟢'
+    let vEmoji = '🟢'
+    let vTitle = 'проверки проведены, замечаний нет'
+    let vNote = `Проверено ${totalChecks}, открытых замечаний нет.`
+    if (totalChecks === 0) {
+      head = '🔴'; vEmoji = '⛔️'; vTitle = 'контроль качества НЕ проводился'
+      vNote = 'За период не зафиксировано ни одной проверки. Это плохо: тикеты не проверялись, качество никто не контролировал.'
+    } else if (urgent.length > 0) {
+      head = '🔴'; vEmoji = '🔴'; vTitle = 'есть критичные замечания — ОЧЕНЬ СРОЧНО'
+      vNote = `Открытых замечаний: ${deptOpen}, из них критичных: ${urgent.length} — исправить немедленно.`
+    } else if (deptOpen > 0) {
+      head = '🟠'; vEmoji = '🟠'; vTitle = 'есть открытые замечания'
+      vNote = `Открытых замечаний: ${deptOpen} — нужно закрыть.`
+    } else if (deptIssues > 0) {
+      head = '🟡'; vEmoji = '🟡'; vTitle = 'замечания были и устранены'
+      vNote = `Все ${deptIssues} замечаний закрыты.`
+    }
 
     // Build the message (mirrors src/lib/telegramReport.js formatQualityReport).
     const periodLabel = period === 'weekly' ? 'за неделю' : 'за сегодня'
+    const sona0 = sonaCompanies === 0 ? ' ❌' : ''
+    const marg0 = margChats === 0 ? ' ❌' : ''
     const lines: string[] = []
-    lines.push(`<b>📊 Контроль качества бух. услуг — ${periodLabel}</b>`)
+    lines.push(`${head} <b>Контроль качества бух. услуг — ${periodLabel}</b>`)
+    lines.push('')
+    lines.push(`${vEmoji} <b>ИТОГ: ${vTitle}</b>`)
+    lines.push(vNote)
     lines.push('')
     lines.push('<b>По отделу</b>')
-    lines.push(`• Замечаний: <b>${scopedProblems.length}</b> (открыто ${deptOpen})`)
+    lines.push(`• Проверки: Сона ${sonaCompanies}${sona0}, Маргарита ${margChats}${marg0}`)
+    lines.push(`• Открытых замечаний: <b>${deptOpen}</b>${deptOpen > 0 ? ' 🔴' : ''}`)
+    lines.push(`• Замечаний всего: ${deptIssues}${deptIssues > 0 ? ` (устранено ${deptIssues - deptOpen})` : ''}`)
+    lines.push(`• 🔴 ОЧЕНЬ СРОЧНО: ${urgent.length}`)
     lines.push(`• Похвал: <b>${scopedPraise.length}</b>`)
-    lines.push(`• Проверено Соной: ${sonaCompanies} (замечаний ${sonaProblems})`)
     if (urgent.length) {
       lines.push('')
       lines.push(`🔴 <b>ОЧЕНЬ СРОЧНО — ${urgent.length}</b>`)
