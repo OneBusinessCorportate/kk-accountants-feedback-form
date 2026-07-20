@@ -7,27 +7,17 @@ import {
   acknowledgeProblem,
   submitAppeal,
 } from '../lib/api'
-import { DASHBOARD_SOURCES, formatDate, previousWorkingDaysBack } from '../lib/dashboard'
+import { DASHBOARD_SOURCES, formatDate } from '../lib/dashboard'
 import { computeGate } from '../lib/ticketGate'
 import { problemContext } from '../lib/presentation'
 import { SOURCE_LABELS } from '../lib/constants'
 import { Loading, ErrorMessage } from '../components/States'
 
-// Which working day the gate is enforcing right now. On Monday (and Sunday) the
-// previous working day is Friday; otherwise it is "the previous day".
-function previousWorkingDayLabel(now = new Date()) {
-  return previousWorkingDaysBack(now) >= 2
-    ? { accusative: 'за пятницу', adjective: 'пятничному', title: 'Тикеты за пятницу' }
-    : { accusative: 'за вчерашний день', adjective: 'вчерашнему', title: 'Вчерашние тикеты' }
-}
-
 // The mandatory review surface shown to a regular accountant while ANY of their
-// previous-working-day tickets is unanswered (on Monday: Friday's). Nothing else
-// in the app is reachable until every ticket here is accepted or appealed. When
-// the last one is answered we re-check server-side and call onComplete() to
-// unlock the platform.
+// tickets is unanswered. Nothing else in the app is reachable until every ticket
+// here is accepted or appealed. When the last one is answered we re-check
+// server-side and call onComplete() to unlock the platform.
 export default function MandatoryReview({ access, onComplete }) {
-  const dayLabel = previousWorkingDayLabel()
   const [gate, setGate] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -66,14 +56,14 @@ export default function MandatoryReview({ access, onComplete }) {
   return (
     <div>
       <div className="alert" role="alert" style={{ marginBottom: 16 }}>
-        <b>Перед началом работы необходимо обработать все тикеты {dayLabel.accusative}.</b>
+        <b>Перед началом работы необходимо обработать все ваши тикеты.</b>
         <div style={{ marginTop: 6 }}>
-          Остальные разделы платформы недоступны, пока по каждому {dayLabel.adjective} тикету
+          Остальные разделы платформы недоступны, пока по каждому тикету
           вы не выберете <b>Принять</b> или <b>Подать апелляцию</b> с комментарием.
         </div>
       </div>
 
-      <h1 className="page-title">{dayLabel.title}</h1>
+      <h1 className="page-title">Все тикеты</h1>
       <div className="queue-summary" aria-live="polite">
         Обработано <b>{answered}</b> из <b>{total}</b> тикетов
       </div>

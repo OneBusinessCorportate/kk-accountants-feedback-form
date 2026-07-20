@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { selectYesterdayTickets, answeredProblemIds, computeGate, isBlocked } from './ticketGate'
+import { selectOutstandingTickets, answeredProblemIds, computeGate, isBlocked } from './ticketGate'
 
-// Fixed clock: 2026-07-15 13:00 Yerevan → yesterday = 2026-07-14 (full local day).
+// Fixed clock: 2026-07-15 13:00 Yerevan.
 const NOW = new Date('2026-07-15T09:00:00Z')
 const YESTERDAY = '2026-07-14T08:00:00Z' // 12:00 Yerevan, 14 July
 const TODAY = '2026-07-15T08:00:00Z' // 12:00 Yerevan, 15 July
@@ -27,9 +27,9 @@ const ticket = (o = {}) => ({
   detected_at: o.detected_at || YESTERDAY,
 })
 
-describe('selectYesterdayTickets', () => {
-  it("keeps the accountant's active yesterday tickets", () => {
-    const tickets = selectYesterdayTickets({
+describe('selectOutstandingTickets', () => {
+  it("keeps the accountant's active tickets", () => {
+    const tickets = selectOutstandingTickets({
       problems: [ticket({ problem_id: 'p1' })],
       chats: CHATS,
       access: ACC,
@@ -38,21 +38,22 @@ describe('selectYesterdayTickets', () => {
     expect(tickets.map((t) => t.problem_id)).toEqual(['p1'])
   })
 
-  it('excludes today and older tickets', () => {
-    const tickets = selectYesterdayTickets({
+  it('blocks on tickets of ANY date (today, yesterday and older)', () => {
+    const tickets = selectOutstandingTickets({
       problems: [
-        ticket({ problem_id: 'today', detected_at: TODAY }),
-        ticket({ problem_id: 'old', detected_at: OLDER }),
+        ticket({ problem_id: 'today', detected_at: TODAY, problem_title: 'T today' }),
+        ticket({ problem_id: 'yest', detected_at: YESTERDAY, problem_title: 'T yest' }),
+        ticket({ problem_id: 'old', detected_at: OLDER, problem_title: 'T old' }),
       ],
       chats: CHATS,
       access: ACC,
       now: NOW,
     })
-    expect(tickets).toHaveLength(0)
+    expect(tickets.map((t) => t.problem_id).sort()).toEqual(['old', 'today', 'yest'])
   })
 
   it("excludes another accountant's tickets", () => {
-    const tickets = selectYesterdayTickets({
+    const tickets = selectOutstandingTickets({
       problems: [ticket({ problem_id: 'x', accountant_id: 'emp-2', accountant_name: 'Other' })],
       chats: CHATS,
       access: ACC,
@@ -71,14 +72,14 @@ describe('selectYesterdayTickets', () => {
       ...CHATS,
       { agr_no: 'B-9', chat_link: 'https://t.me/gone', status: 'Inactive' },
     ]
-    const tickets = selectYesterdayTickets({ problems, chats, access: ACC, now: NOW })
+    const tickets = selectOutstandingTickets({ problems, chats, access: ACC, now: NOW })
     expect(tickets).toHaveLength(0)
   })
 
   it('BLOCKS on an unknown chat when the ticket has a resolved accountant (stricter)', () => {
     // Chat not present in the directory at all → "unknown".
     const problems = [ticket({ problem_id: 'u1', chat_link: 'https://t.me/notlisted', contract_id: 'B-777' })]
-    const tickets = selectYesterdayTickets({ problems, chats: CHATS, access: ACC, now: NOW })
+    const tickets = selectOutstandingTickets({ problems, chats: CHATS, access: ACC, now: NOW })
     expect(tickets.map((t) => t.problem_id)).toEqual(['u1'])
   })
 
@@ -91,49 +92,7 @@ describe('selectYesterdayTickets', () => {
         accountant_name: null,
       },
     ]
-    const tickets = selectYesterdayTickets({ problems, chats: CHATS, access: ACC, now: NOW })
-    expect(tickets).toHaveLength(0)
-  })
-})
-
-describe('Monday reaches back to Friday (previous working day)', () => {
-  // Monday 2026-07-20, 13:00 Yerevan. Previous working day = Friday 2026-07-17.
-  const MONDAY = new Date('2026-07-20T09:00:00Z')
-  const FRIDAY = '2026-07-17T08:00:00Z' // 12:00 Yerevan, 17 July
-  const SATURDAY = '2026-07-18T08:00:00Z'
-  const SUNDAY = '2026-07-19T08:00:00Z'
-  const THURSDAY = '2026-07-16T08:00:00Z' // day before Friday — must NOT block
-
-  it("blocks on Friday's tickets when logging in Monday", () => {
-    const tickets = selectYesterdayTickets({
-      problems: [ticket({ problem_id: 'fri', detected_at: FRIDAY })],
-      chats: CHATS,
-      access: ACC,
-      now: MONDAY,
-    })
-    expect(tickets.map((t) => t.problem_id)).toEqual(['fri'])
-  })
-
-  it('also blocks on weekend tickets (Sat/Sun) on Monday', () => {
-    const tickets = selectYesterdayTickets({
-      problems: [
-        ticket({ problem_id: 'sat', detected_at: SATURDAY }),
-        ticket({ problem_id: 'sun', detected_at: SUNDAY }),
-      ],
-      chats: CHATS,
-      access: ACC,
-      now: MONDAY,
-    })
-    expect(tickets.map((t) => t.problem_id).sort()).toEqual(['sat', 'sun'])
-  })
-
-  it('does NOT block on Thursday tickets (before the Friday window) on Monday', () => {
-    const tickets = selectYesterdayTickets({
-      problems: [ticket({ problem_id: 'thu', detected_at: THURSDAY })],
-      chats: CHATS,
-      access: ACC,
-      now: MONDAY,
-    })
+    const tickets = selectOutstandingTickets({ problems, chats: CHATS, access: ACC, now: NOW })
     expect(tickets).toHaveLength(0)
   })
 })
@@ -153,7 +112,7 @@ describe('computeGate', () => {
     ticket({ problem_id: 'p3', problem_title: 'Проблема 3' }),
   ]
 
-  it('blocks while any yesterday ticket is unanswered', () => {
+  it('blocks while any ticket is unanswered', () => {
     const g = computeGate({ problems, chats: CHATS, acks: [{ problem_id: 'p1' }], appeals: [], access: ACC, now: NOW })
     expect(g.total).toBe(3)
     expect(g.answered).toBe(1)
@@ -176,7 +135,7 @@ describe('computeGate', () => {
     expect(isBlocked(g, ACC)).toBe(false)
   })
 
-  it('is not blocked when there are no yesterday tickets', () => {
+  it('is not blocked when there are no tickets', () => {
     const g = computeGate({ problems: [], chats: CHATS, acks: [], appeals: [], access: ACC, now: NOW })
     expect(g.complete).toBe(true)
     expect(isBlocked(g, ACC)).toBe(false)
