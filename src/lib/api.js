@@ -43,6 +43,21 @@ export async function fetchMailings() {
   )
 }
 
+// Margarita's approved daily report (mqa_published_reports), shown to
+// accountants instead of the retired PDF. Exposed read-only via the
+// kk_published_reports view (migration 0033). Returns the LATEST approved report
+// (by published_at), or null when nothing has been published yet.
+export async function fetchLatestPublishedReport() {
+  const rows = unwrap(
+    await supabase
+      .from('kk_published_reports')
+      .select('id, title, body, report_date, period_label, published_by, published_at')
+      .order('published_at', { ascending: false })
+      .limit(1),
+  )
+  return rows?.[0] ?? null
+}
+
 // Margarita's per-chat quality scorecards (mqa_evaluations), the true record of
 // how many chats she actually checked. Exposed read-only via the
 // kk_margarita_checks view (migration 0026). One row per checked chat/period

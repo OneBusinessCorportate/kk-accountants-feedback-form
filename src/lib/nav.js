@@ -4,6 +4,7 @@
 // page) and «Отчёты» are management-only (see scope.canManage).
 export const NAV_LINKS = [
   { to: '/', label: 'Дашборд', end: true, manageOnly: false },
+  { to: '/report', label: 'Отчёт', manageOnly: false },
   { to: '/accountant', label: 'Бухгалтер', manageOnly: false },
   { to: '/tasks', label: 'Задачи', manageOnly: false },
   { to: '/clients', label: 'Клиенты', manageOnly: false },
