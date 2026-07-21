@@ -10,6 +10,7 @@ import LoginScreen from './components/LoginScreen.jsx'
 import LoadingScreen from './components/LoadingScreen.jsx'
 import ErrorScreen from './components/ErrorScreen.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import Report from './pages/Report.jsx'
 import Accountant from './pages/Accountant.jsx'
 import Management from './pages/Management.jsx'
 import Reports from './pages/Reports.jsx'
@@ -154,6 +155,7 @@ export default function App() {
         <main className="container">
           <Routes>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/report" element={<Report />} />
             <Route path="/accountant" element={<Accountant />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />

@@ -8,6 +8,7 @@ function builder(table) {
   const b = {
     select: vi.fn(() => b),
     order: vi.fn(() => b),
+    limit: vi.fn(() => b),
     eq: vi.fn(() => b),
     in: vi.fn(() => b),
     not: vi.fn(() => b),
@@ -57,6 +58,7 @@ import {
   resolveAppeal,
   setTaskStatus,
   fetchTasks,
+  fetchLatestPublishedReport,
 } from './api'
 
 beforeEach(() => {
@@ -232,5 +234,14 @@ describe('attachmentStoragePath', () => {
     const { attachmentStoragePath } = await import('./api')
     expect(attachmentStoragePath('KK-2026-1', 'notes', 'u2')).toBe('KK-2026-1/u2-notes')
     expect(attachmentStoragePath('KK-2026-1', '...', 'u2')).toBe('KK-2026-1/u2-file')
+  })
+})
+
+describe('fetchLatestPublishedReport', () => {
+  it('reads the newest approved report from kk_published_reports', async () => {
+    const report = await fetchLatestPublishedReport()
+    // No rows in the mock → returns null (never undefined), so the UI shows the
+    // "not published yet" empty state rather than crashing.
+    expect(report).toBeNull()
   })
 })
