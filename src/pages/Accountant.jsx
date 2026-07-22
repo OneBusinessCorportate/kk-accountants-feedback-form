@@ -19,6 +19,8 @@ import {
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { useAuth } from '../lib/AuthContext'
 import { keepOwnProblems } from '../lib/scope'
+import DbComparison from '../components/DbComparison'
+import { useArtyomData } from '../lib/useArtyomData'
 
 export default function Accountant() {
   const { access, isSupervisor } = useAuth()
@@ -39,6 +41,10 @@ export default function Accountant() {
   // Monotonic request id so changing filters quickly can't let a stale
   // response overwrite a newer one, and unmounted writes are dropped.
   const reqRef = useRef(0)
+
+  // ArmSoft/TaxService reference data for the per-word «сравнение с базой» on
+  // each feedback card (loaded once, computed locally per card).
+  const db = useArtyomData({ windowDays: 30 })
 
   // Only supervisors get the "filter by accountant" picker; a regular
   // accountant is always locked to their own queue.
@@ -218,6 +224,7 @@ export default function Accountant() {
               problem={p}
               workflowRow={workflowMap.get(p.problem_id) || null}
               onSaved={load}
+              db={db}
             />
           ))}
         </>
@@ -624,7 +631,7 @@ function SonaComments({ problem, authorName }) {
   )
 }
 
-function ProblemFeedbackCard({ problem, workflowRow = null, onSaved }) {
+function ProblemFeedbackCard({ problem, workflowRow = null, onSaved, db = null }) {
   const { access, isSupervisor } = useAuth()
   const [situation, setSituation] = useState('')
   const [solution, setSolution] = useState('')
@@ -752,6 +759,20 @@ function ProblemFeedbackCard({ problem, workflowRow = null, onSaved }) {
       </div>
 
       {context && <div className="description">{context}</div>}
+
+      {db && (
+        <DbComparison
+          companies={db.companies}
+          activities={db.activities}
+          from={db.from}
+          to={db.to}
+          ready={db.ready}
+          loading={db.loading}
+          clientName={problem.client_name}
+          contractNo={problem.contract_id}
+          accountantName={problem.accountant_name}
+        />
+      )}
 
       {isMargaritaProblem(problem) ? (
         <MargaritaReactionBox problem={problem} initialRow={workflowRow} onDone={onSaved} />

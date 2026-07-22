@@ -398,6 +398,48 @@ here.
   approves is already correct. Mailing auto-detection was also broadened in repo
   #1 (v11: service-payment/«оплата услуг» debt reminders, ЗП/document templates).
 
+## Сравнение с базой (ArmSoft / TaxService) + дневной анализ в чат (0034)
+
+Owner ask: «for every day make sure there is the full analysis from supabase
+that is sent in the chat (shown/hidden), and for every person's word and every
+person's zadacha in the accountant feedback form there is сравнение with the
+taxservice/armsoft database». The ground-truth work lives in the **OB Artyom
+project** (a different Supabase project, reached via `artyomClient.js`); this app
+now cross-references every task/comment against it and posts a daily rollup.
+
+- **`src/lib/artyomCompare.js` (pure, tested `artyomCompare.test.js`)** owns ALL
+  the logic so «sent in the chat» === «seen here»:
+  - `matchCompany()` — resolves a task/comment's client to `ob_accounting_companies`
+    by normalised contract number (Cyrillic/Latin equal, mirrors `mainClient`) then
+    exact name; **no fuzzy merge** (similar-but-unequal names don't match).
+  - `buildComparison({companies, activities, clientName, contractNo, accountantName,
+    taskType})` → per-entity verdict over ArmSoft vs TaxService counts
+    (`invoices/reports/applications/balance`): `unmatched` · `no_systems` ·
+    `no_work` · `discrepancy` (ТаксСервис−АрмСофт ≠ 0) · `ok`. `TASK_METRIC` points
+    the verdict at the metric a task type is really about.
+  - `buildDailyAnalysis(activities, {date, comments})` → department + per-accountant
+    rollup for one day; `formatDailyAnalysisText()` renders the Telegram HTML.
+- **Data path** (all no-ops when Artyom isn't configured — the form still works):
+  `api.js` gains `fetchArtyomCompanies` / `fetchArtyomActivities` /
+  `fetchArtyomComments` reading the SAME Artyom tables `Accounting.jsx` proved
+  (`ob_accounting_companies`, `accounting_activities` with `system_source ∈
+  base|armsoft|taxservice`, `accountant_daily_comments`). `useArtyomData()` loads
+  the reference data ONCE per page (30-day window) so each card computes locally.
+- **UI.** `components/DbComparison.jsx` — collapsible «Сравнение с базой» panel
+  (verdict badge always visible; body shows per-system counts + reconciliation
+  gap). Wired into **`Tasks.jsx`** (a sub-row under every task = «задача») and
+  **`Accountant.jsx` → `ProblemFeedbackCard`** (under every feedback card =
+  «слово»). `components/DailyAnalysis.jsx` — the full day analysis, **shown/hidden**
+  by a toggle, on `Dashboard.jsx` and `Tasks.jsx`; it fetches the picked day only
+  when opened and renders the identical content the chat gets.
+- **Chat (0034 + edge fn).** `supabase/functions/daily-db-analysis-telegram/`
+  reads the Artyom project over PostgREST (secrets `ARTYOM_SUPABASE_URL` /
+  `ARTYOM_SUPABASE_ANON_KEY`), rebuilds the analysis (TS mirror of
+  `artyomCompare.js`) and posts it to the ОК group daily. `0034` schedules it
+  (every day 19:45 Yerevan) via pg_cron + pg_net; **no-op** until
+  `app.edge_base_url` / `app.edge_auth` are set, and needs `TELEGRAM_BOT_TOKEN` /
+  `TELEGRAM_CHAT_ID` too. Runs "dry" (returns the message) without the bot secrets.
+
 ## Commands
 
 - `npm run dev` — local dev server

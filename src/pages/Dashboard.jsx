@@ -14,6 +14,7 @@ import { SOURCE_LABELS, URGENCY, URGENCY_LABELS, URGENCY_BADGE } from '../lib/co
 import { keepOwnProblems } from '../lib/scope'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage, Empty } from '../components/States'
+import DailyAnalysis from '../components/DailyAnalysis'
 
 function localToday() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Yerevan' }) // YYYY-MM-DD
@@ -92,6 +93,10 @@ export default function Dashboard() {
       <p className="page-subtitle">
         Только результаты проверки качества · активные чаты · рабочее время 10:00–13:00, 14:00–19:00.
       </p>
+
+      {/* Full daily analysis from Supabase (ArmSoft + TaxService), show/hide —
+          the same content sent to the Telegram chat. */}
+      <DailyAnalysis />
 
       <ErrorMessage error={error} />
 

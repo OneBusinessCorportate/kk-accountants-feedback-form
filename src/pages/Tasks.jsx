@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { fetchTasks, createTask, setTaskStatus, postponeTask, deleteTask, fetchAccountants } from '../lib/api'
 import {
   TASK_TYPES,
@@ -12,6 +12,9 @@ import {
 import { buildTaskMessage, TASK_PROGRESS, taskStatusOf } from '../lib/taskMessage'
 import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage } from '../components/States'
+import DbComparison from '../components/DbComparison'
+import DailyAnalysis from '../components/DailyAnalysis'
+import { useArtyomData } from '../lib/useArtyomData'
 
 function today() {
   return new Date().toISOString().slice(0, 10)
@@ -79,6 +82,9 @@ export default function Tasks() {
   }, [access, isSupervisor])
 
   useEffect(() => { load() }, [load])
+
+  // ArmSoft/TaxService reference data for the per-task «сравнение с базой».
+  const db = useArtyomData({ windowDays: 30 })
 
   function openForm() {
     const pre = isSupervisor
@@ -202,6 +208,9 @@ export default function Tasks() {
         Задачи для бухгалтеров: рассылки, отчёты, квитанции, аудит и follow-up по
         результатам QA. Отдельно от апелляций.
       </p>
+
+      {/* Full daily analysis from Supabase (ArmSoft + TaxService), show/hide. */}
+      <DailyAnalysis />
 
       {/* Summary badges */}
       {pendingCount > 0 && (
@@ -354,8 +363,10 @@ export default function Tasks() {
                   {g.items.map((task) => {
                     const closed = task.done || task.status === 'cancelled'
                     const due = effectiveDue(task)
+                    const cols = 8 + (isSupervisor && !filterAccountant ? 1 : 0)
                     return (
-                    <tr key={task.id} style={{ opacity: closed ? 0.5 : 1 }}>
+                    <Fragment key={task.id}>
+                    <tr style={{ opacity: closed ? 0.5 : 1 }}>
                       <td>
                         {/* Clear three-state control (req 2): 🟢 done · ⭕ in
                             process · 🔴 not done. The dropdown below keeps the
@@ -447,6 +458,22 @@ export default function Tasks() {
                         </button>
                       </td>
                     </tr>
+                    <tr style={{ opacity: closed ? 0.5 : 1 }}>
+                      <td colSpan={cols} style={{ paddingTop: 0 }}>
+                        <DbComparison
+                          companies={db.companies}
+                          activities={db.activities}
+                          from={db.from}
+                          to={db.to}
+                          ready={db.ready}
+                          loading={db.loading}
+                          clientName={task.client_name}
+                          accountantName={task.accountant_name}
+                          taskType={task.task_type}
+                        />
+                      </td>
+                    </tr>
+                    </Fragment>
                     )
                   })}
                 </tbody>

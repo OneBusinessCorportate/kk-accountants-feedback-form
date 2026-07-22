@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient'
+import { artyom } from './artyomClient'
 import { STATUS } from './constants'
 import { qaKind } from './ingestion'
 import { getStoredCode } from './auth'
@@ -664,4 +665,58 @@ export async function fetchAttachments(problemId) {
       .eq('problem_id', problemId)
       .order('created_at', { ascending: true }),
   )
+}
+
+// ---- Artyom project: real ArmSoft / TaxService work (for «сравнение с базой») --
+// These read the OB Artyom project (see artyomClient.js), NOT the KK project.
+// They feed the DbComparison / DailyAnalysis panels and are shaped exactly like
+// what Accounting.jsx already reads, so the pure logic in artyomCompare.js works
+// unchanged. Every function is a no-op (returns []) when Artyom isn't configured,
+// so the feedback form still works without the accounting DB.
+
+function ymd(d) {
+  return (d instanceof Date ? d : new Date(d)).toISOString().slice(0, 10)
+}
+
+/** Registered companies with their accountant + ArmSoft/tax bindings. */
+export async function fetchArtyomCompanies() {
+  if (!artyom) return []
+  const { data, error } = await artyom
+    .from('ob_accounting_companies')
+    .select('id, company_name, contract_number, accountant_name, is_active, armsoft_company_id, tax_account_id')
+    .order('company_name')
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+/**
+ * Per company/accountant/day work counts, split by system_source
+ * (base | armsoft | taxservice), within [from, to] (inclusive, YYYY-MM-DD).
+ * Optionally narrowed to one accountant.
+ */
+export async function fetchArtyomActivities({ from, to, accountantName } = {}) {
+  if (!artyom) return []
+  let q = artyom
+    .from('accounting_activities')
+    .select('company_name, accountant_name, activity_date, system_source, invoices_issued, reports_submitted, applications_filed, balance_changes')
+  if (from) q = q.gte('activity_date', ymd(from))
+  if (to) q = q.lte('activity_date', ymd(to))
+  if (accountantName) q = q.eq('accountant_name', accountantName)
+  const { data, error } = await q.order('activity_date', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+/** Accountant daily comments (the «слова» in the accounting reporting tool). */
+export async function fetchArtyomComments({ from, to, accountantName } = {}) {
+  if (!artyom) return []
+  let q = artyom
+    .from('accountant_daily_comments')
+    .select('accountant_name, company_name, comment_date, comment, unaccounted_work')
+  if (from) q = q.gte('comment_date', ymd(from))
+  if (to) q = q.lte('comment_date', ymd(to))
+  if (accountantName) q = q.eq('accountant_name', accountantName)
+  const { data, error } = await q.order('comment_date', { ascending: false })
+  if (error) throw new Error(error.message)
+  return data ?? []
 }
