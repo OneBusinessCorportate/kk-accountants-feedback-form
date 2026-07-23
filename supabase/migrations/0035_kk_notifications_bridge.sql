@@ -287,6 +287,11 @@ $$;
 -- 3. Edit the planned text (audited) ----------------------------------------
 -- Last-minute edit allowed, but ALWAYS logged (who/what/when) — no silent edits
 -- (pt.3). Keeps the row scheduled (status → 'edited'); the bot still sends it.
+-- Editable ONLY while 'planned' or 'edited': an 'approved' row is locked (that
+-- is the point of approve), and 'sent'/'cancelled' are terminal. The UPDATE is
+-- atomic on the allowed statuses, so the bot flipping the row to 'sent' between
+-- the check and the write cannot be resurrected — if nothing was updated we
+-- report the row as no longer editable.
 create or replace function public.kk_edit_notification(
   p_planned_id text,   -- text so the anon client's JSON number/string both work
   p_login_code text,
@@ -302,28 +307,38 @@ declare
   o      record;
   v_text text := btrim(coalesce(p_new_text, ''));
   v_old  text;
+  v_hit  bigint;
 begin
   if v_text = '' then
     raise exception 'Текст уведомления не может быть пустым.' using errcode = '22023';
   end if;
 
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
-  if o.status in ('sent', 'cancelled') then
+  if o.status = 'approved' then
+    raise exception 'Уведомление подтверждено (текст заблокирован). Отмените подтверждение или отправку, чтобы изменить.' using errcode = '22023';
+  elsif o.status in ('sent', 'cancelled') then
     raise exception 'Это уведомление уже отправлено или отменено — правка недоступна.' using errcode = '22023';
   end if;
 
   select p.rendered_text into v_old from public.mqa_planned_notifications p where p.id = v_id;
 
-  insert into public.mqa_notification_edits (planned_id, action, editor, old_text, new_text)
-  values (v_id, 'edit_text', o.full_name, v_old, v_text);
-
+  -- Atomic, status-guarded write (race-safe against the bot claiming 'sent').
   update public.mqa_planned_notifications p
      set rendered_text = v_text,
          status        = 'edited',
          edited_by     = o.full_name,
          edited_at     = now(),
          updated_at    = now()
-   where p.id = v_id;
+   where p.id = v_id
+     and p.status in ('planned', 'edited')
+  returning p.id into v_hit;
+
+  if v_hit is null then
+    raise exception 'Уведомление уже отправлено или изменило статус — правка не применена.' using errcode = '22023';
+  end if;
+
+  insert into public.mqa_notification_edits (planned_id, action, editor, old_text, new_text)
+  values (v_id, 'edit_text', o.full_name, v_old, v_text);
 
   return query
     select p.id, p.status, p.rendered_text, p.edited_by, p.edited_at

@@ -31,14 +31,18 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
   const held = needsAttachment(row, attachment)
   const willSend = isSendable(row.status)
 
+  // Returns true on success, false on failure — callers use it so the editor is
+  // closed only when the save actually succeeded.
   const run = async (fn) => {
     setBusy(true)
     setErr(null)
     try {
       await fn()
       await onChanged()
+      return true
     } catch (e) {
       setErr(e.message || String(e))
+      return false
     } finally {
       setBusy(false)
     }
@@ -106,8 +110,10 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
                 className="btn btn-sm"
                 disabled={busy}
                 onClick={() =>
-                  run(() => editPlannedNotification({ plannedId: row.id, newText: text })).then(() =>
-                    setEditing(false),
+                  run(() => editPlannedNotification({ plannedId: row.id, newText: text })).then(
+                    (okSaved) => {
+                      if (okSaved) setEditing(false)
+                    },
                   )
                 }
               >
@@ -124,20 +130,29 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
                 Отмена
               </button>
             </>
+          ) : row.status === 'approved' ? (
+            <>
+              <span className="badge badge-green">🔒 Текст подтверждён (заблокирован)</span>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={busy}
+                onClick={() => run(() => cancelPlannedNotification({ plannedId: row.id }))}
+              >
+                Отменить отправку
+              </button>
+            </>
           ) : (
             <>
               <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setEditing(true)}>
                 Редактировать
               </button>
-              {row.status !== 'approved' && (
-                <button
-                  className="btn btn-sm"
-                  disabled={busy}
-                  onClick={() => run(() => approvePlannedNotification({ plannedId: row.id }))}
-                >
-                  Подтвердить
-                </button>
-              )}
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() => run(() => approvePlannedNotification({ plannedId: row.id }))}
+              >
+                Подтвердить
+              </button>
               <button
                 className="btn btn-secondary btn-sm"
                 disabled={busy}
@@ -271,11 +286,13 @@ export default function Notifications() {
   const [error, setError] = useState(null)
 
   const load = useCallback(async () => {
+    // Do NOT swallow errors here: an auth/DB failure must surface on the error
+    // screen, not be shown to the accountant as "no notifications".
     const [c, p, a, s] = await Promise.all([
-      fetchChats().catch(() => []),
-      fetchPlannedNotifications().catch(() => []),
-      fetchNotificationAttachments().catch(() => []),
-      fetchSentNotifications().catch(() => []),
+      fetchChats(),
+      fetchPlannedNotifications(),
+      fetchNotificationAttachments(),
+      fetchSentNotifications(),
     ])
     setChats(c || [])
     setPlanned(p || [])
