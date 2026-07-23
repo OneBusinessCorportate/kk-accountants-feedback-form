@@ -14,6 +14,7 @@ import {
   statusBadge,
   attachmentKey,
   willActuallySend,
+  isTerminal,
 } from '../lib/notifications'
 
 /**
@@ -109,8 +110,7 @@ export default function NotificationsDaily() {
                       <td>{categoryLabel(r.category)}</td>
                       <td>
                         <span className={`badge ${statusBadge(r.status)}`}>{statusLabel(r.status)}</span>
-                        {r.status !== 'sent' &&
-                          r.status !== 'cancelled' &&
+                        {!isTerminal(r.status) &&
                           !willActuallySend(r, attByKey.get(attachmentKey(r))) && (
                             <span className="badge badge-amber" style={{ marginLeft: 6 }}>
                               нужен документ
@@ -119,7 +119,7 @@ export default function NotificationsDaily() {
                       </td>
                       <td style={{ maxWidth: 420, whiteSpace: 'pre-wrap' }}>{r.rendered_text}</td>
                       <td>
-                        {r.status !== 'sent' && r.status !== 'cancelled' && (
+                        {!isTerminal(r.status) && (
                           <button className="btn btn-secondary btn-sm" onClick={() => cancel(r.id)}>
                             Отменить
                           </button>

@@ -63,6 +63,14 @@ export function isSendable(status) {
   return status === 'planned' || status === 'edited' || status === 'approved'
 }
 
+// Terminal statuses: the row is done and no longer actionable — the bot will not
+// send it and the accountant cannot edit/approve/cancel/attach it. 'skipped' is
+// terminal too (the planner passed it over), so the UI must treat it like
+// sent/cancelled, not as an active row.
+export function isTerminal(status) {
+  return status === 'sent' || status === 'cancelled' || status === 'skipped'
+}
+
 // Will THIS planned row actually go out? (status allows it) — status only.
 export function willBeSent(row) {
   return !!row && isSendable(row.status)
@@ -83,9 +91,11 @@ export function attachmentKey(row) {
 }
 
 // A manual row that still needs a file/mark before the bot will send it. Used to
-// nudge the accountant and to explain why an item is "held".
+// nudge the accountant and to explain why an item is "held". A terminal row
+// (sent/cancelled/skipped) never "needs" a document.
 export function needsAttachment(row, attachment) {
-  if (!row || row.mode !== 'manual' || !row.requires_attachment) return false
+  if (!row || isTerminal(row.status)) return false
+  if (row.mode !== 'manual' || !row.requires_attachment) return false
   const done = !!attachment && (!!attachment.file_url || attachment.marked_done === true)
   return !done
 }

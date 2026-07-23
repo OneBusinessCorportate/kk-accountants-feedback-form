@@ -5,6 +5,7 @@ import {
   modeLabel,
   statusLabel,
   isSendable,
+  isTerminal,
   willBeSent,
   willActuallySend,
   needsAttachment,
@@ -43,8 +44,23 @@ describe('isSendable / willBeSent', () => {
   })
 })
 
+describe('isTerminal', () => {
+  it('sent/cancelled/skipped are terminal; active statuses are not', () => {
+    expect(isTerminal('sent')).toBe(true)
+    expect(isTerminal('cancelled')).toBe(true)
+    expect(isTerminal('skipped')).toBe(true)
+    expect(isTerminal('planned')).toBe(false)
+    expect(isTerminal('edited')).toBe(false)
+    expect(isTerminal('approved')).toBe(false)
+  })
+})
+
 describe('needsAttachment', () => {
   const manualRow = { mode: 'manual', requires_attachment: true }
+  it('a skipped/terminal manual row never needs a document', () => {
+    expect(needsAttachment({ ...manualRow, status: 'skipped' }, undefined)).toBe(false)
+    expect(needsAttachment({ ...manualRow, status: 'sent' }, undefined)).toBe(false)
+  })
   it('a manual row with no file/mark still needs an attachment', () => {
     expect(needsAttachment(manualRow, undefined)).toBe(true)
     expect(needsAttachment(manualRow, { file_url: '', marked_done: false })).toBe(true)

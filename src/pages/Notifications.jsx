@@ -19,6 +19,7 @@ import {
   statusBadge,
   needsAttachment,
   willActuallySend,
+  isTerminal,
 } from '../lib/notifications'
 
 // One planned-notification row with inline edit + actions.
@@ -104,7 +105,7 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
 
       {err && <div className="badge badge-red" style={{ marginTop: 6 }}>{err}</div>}
 
-      {canAct && row.status !== 'sent' && row.status !== 'cancelled' && (
+      {canAct && !isTerminal(row.status) && (
         <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           {editing ? (
             <>
@@ -167,7 +168,7 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
         </div>
       )}
 
-      {canAct && row.mode === 'manual' && row.status !== 'sent' && row.status !== 'cancelled' && (
+      {canAct && row.mode === 'manual' && !isTerminal(row.status) && (
         <ManualAttach row={row} attachment={attachment} onChanged={onChanged} />
       )}
     </div>
