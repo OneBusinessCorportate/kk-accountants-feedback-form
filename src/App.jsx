@@ -16,6 +16,7 @@ import Management from './pages/Management.jsx'
 import Reports from './pages/Reports.jsx'
 import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
+import Mailings from './pages/Mailings.jsx'
 import Accounting from './pages/Accounting.jsx'
 import MandatoryReview from './pages/MandatoryReview.jsx'
 
@@ -159,6 +160,7 @@ export default function App() {
             <Route path="/accountant" element={<Accountant />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />
+            <Route path="/mailings" element={<Mailings />} />
             <Route path="/accounting" element={<Accounting />} />
             <Route
               path="/management"

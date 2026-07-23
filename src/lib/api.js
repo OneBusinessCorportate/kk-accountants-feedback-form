@@ -40,7 +40,7 @@ export async function fetchChats() {
 // via the kk_chat_mailings view (migration 0024).
 export async function fetchMailings() {
   return unwrap(
-    await supabase.from('kk_chat_mailings').select('agr_no, period, category, status, confirmed'),
+    await supabase.from('kk_chat_mailings').select('agr_no, period, category, status, confirmed, source'),
   )
 }
 
@@ -719,4 +719,166 @@ export async function fetchArtyomComments({ from, to, accountantName } = {}) {
   const { data, error } = await q.order('comment_date', { ascending: false })
   if (error) throw new Error(error.message)
   return data ?? []
+}
+
+// ---- Template notifications (шаблонные рассылки, migration 0035) -----------
+//
+// The bot sends template mailings automatically; the cabinet lets accountants
+// review the 30-day chain, attach the manual salary/tax files, and edit a
+// planned message through an AUDITED button (never a raw field). Reads are anon
+// selects on the kk_* tables; the edit is a SECURITY DEFINER RPC carrying the
+// login code (the acknowledgeViolation pattern).
+
+// All mailing reads go through SECURITY DEFINER RPCs that scope rows to the
+// caller's own clients (supervisors see all) — server-side isolation, since the
+// anon SPA has no auth session to key RLS on (migration 0035). The login code
+// is the identity, exactly like acknowledgeViolation.
+function rpcCode(loginCode) {
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  return code
+}
+async function rpcRows(name, args) {
+  const { data, error } = await supabase.rpc(name, args)
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+/** Per-company settings (language, telegram_chat_id, active, owner) — req 4. */
+export async function fetchCompanySettings({ loginCode } = {}) {
+  return rpcRows('kk_list_company_settings', { p_login_code: rpcCode(loginCode) })
+}
+
+/** Per-company schedule rows (individual schedule per company). */
+export async function fetchMailingSchedule({ loginCode } = {}) {
+  return rpcRows('kk_list_mailing_schedule', { p_login_code: rpcCode(loginCode) })
+}
+
+/** The materialised 30-day planned chain (req 3), scoped to the caller. */
+export async function fetchPlannedMailings({ includeTest = false, loginCode } = {}) {
+  return rpcRows('kk_list_planned_mailings', {
+    p_login_code: rpcCode(loginCode),
+    p_include_test: includeTest,
+  })
+}
+
+/**
+ * Edit a planned message's text (req 3). Button-driven + audit-logged: the RPC
+ * resolves the login code to an employee, records old/new text + who, and sets
+ * status='edited'. The send TIME is never editable.
+ */
+export async function editPlannedMailing({ plannedId, newText, loginCode } = {}) {
+  const text = (newText || '').trim()
+  if (!text) throw new Error('Текст сообщения не может быть пустым.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_edit_planned_mailing', {
+    p_planned_id: plannedId,
+    p_new_text: text,
+    p_login_code: code,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * Save an edit to a planned message that may not be persisted yet (the cabinet
+ * computes the 30-day chain locally). Upserts by natural key and logs the edit
+ * (who/what/when) via the SECURITY DEFINER RPC. scheduled_at comes from the
+ * fixed schedule, not free input.
+ */
+export async function savePlannedMailing({
+  agrNo, category, subtype, period, language, scheduledAt, newText, isTest = false, loginCode,
+} = {}) {
+  const text = (newText || '').trim()
+  if (!text) throw new Error('Текст сообщения не может быть пустым.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_upsert_planned_mailing', {
+    p_login_code: code,
+    p_agr_no: agrNo,
+    p_category: category,
+    p_subtype: subtype,
+    p_period: period,
+    p_language: language || null,
+    p_scheduled_at: scheduledAt,
+    p_text: text,
+    p_is_test: isTest,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/** Edit history for one planned message (who changed what, when) — scoped. */
+export async function fetchPlannedMailingEdits(plannedId, { loginCode } = {}) {
+  return rpcRows('kk_list_planned_mailing_edits', {
+    p_login_code: rpcCode(loginCode),
+    p_planned_id: plannedId,
+  })
+}
+
+/** The sent-notifications log (req 6), scoped to the caller's clients. */
+export async function fetchSentNotifications({ limit = 500, loginCode } = {}) {
+  return rpcRows('kk_list_sent_notifications', {
+    p_login_code: rpcCode(loginCode),
+    p_limit: limit,
+  })
+}
+
+/** Manual-add files/marks (salary sheet + tax report), optionally by period. */
+export async function fetchManualAssets({ period, loginCode } = {}) {
+  return rpcRows('kk_list_manual_assets', {
+    p_login_code: rpcCode(loginCode),
+    p_period: period ?? null,
+  })
+}
+
+/**
+ * Attach a file OR mark a manual asset done (req 2). The file/marker is the
+ * required unit; `note` is optional and never forced. Upserts one row per
+ * (agr_no, period, kind).
+ */
+export async function saveManualAsset({ agrNo, period, kind, file, markedDone, note, loginCode } = {}) {
+  const code = rpcCode(loginCode)
+  let storagePath = null
+  let fileName = null
+  if (file) {
+    const safe = file.name.replace(/[^\w.\-]+/g, '_')
+    storagePath = `mailings/${normalizeAssetKey(agrNo)}/${period}/${kind}/${safe}`
+    const { error: upErr } = await supabase.storage
+      .from('kk-attachments')
+      .upload(storagePath, file, { contentType: file.type || undefined, upsert: true })
+    if (upErr) throw new Error(upErr.message)
+    fileName = file.name
+    // Salary sheets / tax reports are sensitive client documents — we keep only
+    // the private storage path (no public url) and hand out short-lived SIGNED
+    // urls on demand. The kk-attachments bucket must be private (see docs).
+  }
+  // The row write is ownership-checked server-side (kk_save_manual_asset).
+  const { data, error } = await supabase.rpc('kk_save_manual_asset', {
+    p_login_code: code,
+    p_agr_no: agrNo,
+    p_period: period,
+    p_kind: kind,
+    p_storage_path: storagePath,
+    p_file_name: fileName,
+    p_marked_done: markedDone ?? !!file,
+    p_note: note || null,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/** Short-lived signed URL to view a manual-add file (private bucket). */
+export async function signedAssetUrl(storagePath, expiresIn = 300) {
+  if (!storagePath) return null
+  const { data, error } = await supabase.storage
+    .from('kk-attachments')
+    .createSignedUrl(storagePath, expiresIn)
+  if (error) throw new Error(error.message)
+  return data?.signedUrl ?? null
+}
+
+function normalizeAssetKey(agrNo) {
+  return (agrNo || 'unknown').toString().replace(/[^\w-]+/g, '_')
 }
