@@ -8,6 +8,7 @@ export const NAV_LINKS = [
   { to: '/accountant', label: 'Бухгалтер', manageOnly: false },
   { to: '/tasks', label: 'Задачи', manageOnly: false },
   { to: '/clients', label: 'Клиенты', manageOnly: false },
+  { to: '/mailings', label: 'Рассылки', manageOnly: false },
   { to: '/accounting', label: 'Отчётность', manageOnly: false },
   { to: '/management', label: 'Управление', manageOnly: true },
   { to: '/reports', label: 'Отчёты', manageOnly: true },

@@ -1,0 +1,55 @@
+# Render config for the kk-accountants-feedback-form app.
+#
+# 1) The existing accountant/manager cabinet (static site, Vite build).
+# 2) A cron worker that runs the automated template-notifications bot.
+#
+# SENDING IS LOCKED by default: the cron runs the bot in preview/dry-run and
+# will NOT send until ALLOW_SENDING=true is set in the Render dashboard, and
+# even then FORCE_TEST_CHAT_ONLY in scripts/mailing_bot.mjs forces every message
+# to the test chat. Secrets (TELEGRAM_BOT_TOKEN, SUPABASE_SERVICE_ROLE_KEY, …)
+# are set in the Render dashboard — never committed. See
+# docs/TEMPLATE_NOTIFICATIONS.md.
+
+services:
+  - type: web
+    name: kk-accountants-feedback-form
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+
+  # Nightly: materialise the 30-day planned chain into kk_planned_mailings
+  # (dedup-aware, never clobbers accountant-edited rows). No sending.
+  - type: cron
+    name: kk-mailing-bot-planner
+    runtime: node
+    schedule: "30 3 * * *" # 07:30 Asia/Yerevan (UTC+4)
+    buildCommand: npm ci
+    startCommand: node scripts/mailing_bot.mjs --mode plan
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  # Runs today's due mailings each morning (Yerevan): plans, then sends what's
+  # due. Dry-run until unlocked; every send is forced to the test chat.
+  - type: cron
+    name: kk-mailing-bot-sender
+    runtime: node
+    schedule: "0 5 * * *" # 09:00 Asia/Yerevan (UTC+4)
+    buildCommand: npm ci
+    startCommand: node scripts/mailing_bot.mjs --mode send
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ALLOW_SENDING
+        value: "false" # keep OFF until the owner explicitly enables sending

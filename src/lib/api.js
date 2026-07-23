@@ -40,7 +40,7 @@ export async function fetchChats() {
 // via the kk_chat_mailings view (migration 0024).
 export async function fetchMailings() {
   return unwrap(
-    await supabase.from('kk_chat_mailings').select('agr_no, period, category, status, confirmed'),
+    await supabase.from('kk_chat_mailings').select('agr_no, period, category, status, confirmed, source'),
   )
 }
 
@@ -719,4 +719,174 @@ export async function fetchArtyomComments({ from, to, accountantName } = {}) {
   const { data, error } = await q.order('comment_date', { ascending: false })
   if (error) throw new Error(error.message)
   return data ?? []
+}
+
+// ---- Template notifications (шаблонные рассылки, migration 0035) -----------
+//
+// The bot sends template mailings automatically; the cabinet lets accountants
+// review the 30-day chain, attach the manual salary/tax files, and edit a
+// planned message through an AUDITED button (never a raw field). Reads are anon
+// selects on the kk_* tables; the edit is a SECURITY DEFINER RPC carrying the
+// login code (the acknowledgeViolation pattern).
+
+/** Per-company settings (language, telegram_chat_id, active, owner) — req 4. */
+export async function fetchCompanySettings() {
+  return unwrap(
+    await supabase
+      .from('kk_company_settings')
+      .select('agr_no, language, telegram_chat_id, bot_can_send, active, accountant_id, accountant_name, client_name, chat_name'),
+  )
+}
+
+/** Per-company schedule rows (individual schedule per company). */
+export async function fetchMailingSchedule() {
+  return unwrap(
+    await supabase
+      .from('kk_mailing_schedule')
+      .select('id, agr_no, category, subtype, day_of_month, send_hour, send_minute, enabled'),
+  )
+}
+
+/** The materialised 30-day planned chain (req 3). */
+export async function fetchPlannedMailings({ accountantId, includeTest = false } = {}) {
+  let q = supabase
+    .from('kk_planned_mailings')
+    .select(
+      'id, agr_no, client_name, chat_name, category, subtype, period, language, scheduled_at, composed_text, accountant_id, accountant_name, status, edited, is_test',
+    )
+    .order('scheduled_at', { ascending: true })
+  if (!includeTest) q = q.eq('is_test', false)
+  if (accountantId) q = q.eq('accountant_id', accountantId)
+  return unwrap(await q)
+}
+
+/**
+ * Edit a planned message's text (req 3). Button-driven + audit-logged: the RPC
+ * resolves the login code to an employee, records old/new text + who, and sets
+ * status='edited'. The send TIME is never editable.
+ */
+export async function editPlannedMailing({ plannedId, newText, loginCode } = {}) {
+  const text = (newText || '').trim()
+  if (!text) throw new Error('Текст сообщения не может быть пустым.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_edit_planned_mailing', {
+    p_planned_id: plannedId,
+    p_new_text: text,
+    p_login_code: code,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/**
+ * Save an edit to a planned message that may not be persisted yet (the cabinet
+ * computes the 30-day chain locally). Upserts by natural key and logs the edit
+ * (who/what/when) via the SECURITY DEFINER RPC. scheduled_at comes from the
+ * fixed schedule, not free input.
+ */
+export async function savePlannedMailing({
+  agrNo, category, subtype, period, language, scheduledAt, newText, isTest = false, loginCode,
+} = {}) {
+  const text = (newText || '').trim()
+  if (!text) throw new Error('Текст сообщения не может быть пустым.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_upsert_planned_mailing', {
+    p_login_code: code,
+    p_agr_no: agrNo,
+    p_category: category,
+    p_subtype: subtype,
+    p_period: period,
+    p_language: language || null,
+    p_scheduled_at: scheduledAt,
+    p_text: text,
+    p_is_test: isTest,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+/** Edit history for one planned message (who changed what, when). */
+export async function fetchPlannedMailingEdits(plannedId) {
+  return unwrap(
+    await supabase
+      .from('kk_planned_mailing_edits')
+      .select('id, old_text, new_text, edited_by, edited_at')
+      .eq('planned_id', plannedId)
+      .order('edited_at', { ascending: false }),
+  )
+}
+
+/** The sent-notifications log (req 6). Optionally narrowed to one contract. */
+export async function fetchSentNotifications({ agrNo, limit = 500 } = {}) {
+  let q = supabase
+    .from('kk_sent_notifications')
+    .select('id, agr_no, client_name, category, subtype, language, text, telegram_chat_id, is_test, sent_at')
+    .order('sent_at', { ascending: false })
+    .limit(limit)
+  if (agrNo) q = q.eq('agr_no', agrNo)
+  return unwrap(await q)
+}
+
+/** Manual-add files/marks (salary sheet + tax report), optionally by period. */
+export async function fetchManualAssets({ period } = {}) {
+  let q = supabase
+    .from('kk_manual_mailing_assets')
+    .select('id, agr_no, period, kind, storage_path, file_name, public_url, marked_done, note, uploaded_by, updated_at')
+  if (period) q = q.eq('period', period)
+  return unwrap(await q)
+}
+
+/**
+ * Attach a file OR mark a manual asset done (req 2). The file/marker is the
+ * required unit; `note` is optional and never forced. Upserts one row per
+ * (agr_no, period, kind).
+ */
+export async function saveManualAsset({ agrNo, period, kind, file, markedDone, note, uploadedBy } = {}) {
+  const row = {
+    agr_no: agrNo,
+    period,
+    kind,
+    marked_done: markedDone ?? false,
+    note: note || null,
+    uploaded_by: uploadedBy || null,
+    updated_at: new Date().toISOString(),
+  }
+  if (file) {
+    const safe = file.name.replace(/[^\w.\-]+/g, '_')
+    const path = `mailings/${normalizeAssetKey(agrNo)}/${period}/${kind}/${safe}`
+    const { error: upErr } = await supabase.storage
+      .from('kk-attachments')
+      .upload(path, file, { contentType: file.type || undefined, upsert: true })
+    if (upErr) throw new Error(upErr.message)
+    // Salary sheets / tax reports are sensitive client documents — we store only
+    // the private storage path and hand out short-lived SIGNED urls on demand
+    // (never a public url). The bucket must be private (see docs).
+    row.storage_path = path
+    row.file_name = file.name
+    row.public_url = null
+    row.marked_done = true
+  }
+  return unwrap(
+    await supabase
+      .from('kk_manual_mailing_assets')
+      .upsert(row, { onConflict: 'agr_no,period,kind' })
+      .select()
+      .single(),
+  )
+}
+
+/** Short-lived signed URL to view a manual-add file (private bucket). */
+export async function signedAssetUrl(storagePath, expiresIn = 300) {
+  if (!storagePath) return null
+  const { data, error } = await supabase.storage
+    .from('kk-attachments')
+    .createSignedUrl(storagePath, expiresIn)
+  if (error) throw new Error(error.message)
+  return data?.signedUrl ?? null
+}
+
+function normalizeAssetKey(agrNo) {
+  return (agrNo || 'unknown').toString().replace(/[^\w-]+/g, '_')
 }

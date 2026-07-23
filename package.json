@@ -8,7 +8,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mailing:preview": "node scripts/mailing_bot.mjs --mode preview",
+    "mailing:demo": "node scripts/mailing_bot.mjs --mode demo-today",
+    "mailing:send": "node scripts/mailing_bot.mjs --mode send"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
