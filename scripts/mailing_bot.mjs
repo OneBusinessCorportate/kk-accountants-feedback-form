@@ -106,7 +106,7 @@ async function telegramSendDocument(chatId, documentUrl, caption) {
   return json.result
 }
 
-async function deliver({ agrNo, clientName, category, subtype, language, text, isTest, docUrl, docName, docRequired }) {
+async function deliver({ agrNo, clientName, category, subtype, period, language, text, isTest, docUrl, docName, docRequired }) {
   // RULE 2: the destination is forced to the test chat while the override is on
   // (resolveTarget ignores any client chat id). RULE 1 (+ preview): canDeliver.
   const target = resolveTarget({ forceTestOnly: FORCE_TEST_CHAT_ONLY, clientChatId: null })
@@ -126,24 +126,27 @@ async function deliver({ agrNo, clientName, category, subtype, language, text, i
     console.log('  · TELEGRAM_BOT_TOKEN не задан — пропуск.')
     return { sent: false, forcedTest }
   }
-  // A required attachment (salary sheet / tax report) is sent FIRST — if it
-  // fails, the whole delivery FAILS (not marked sent, retried next run) so a
-  // mandatory file can never be silently skipped (review fix #3).
-  if (docUrl) {
-    try {
-      await telegramSendDocument(target, docUrl, docName || '')
-    } catch (e) {
-      console.warn(`  · доставка не выполнена: не удалось отправить файл: ${e.message}`)
+  // ONE atomic Telegram call so there is no two-step partial failure that could
+  // re-send an already-delivered part: a manual-add file is sent with the text
+  // as its CAPTION (sendDocument); otherwise the text alone (sendMessage). A
+  // required-but-missing file fails the whole delivery (retried next run).
+  let result
+  try {
+    if (docUrl) {
+      result = await telegramSendDocument(target, docUrl, text)
+    } else if (docRequired) {
+      console.warn('  · доставка не выполнена: обязательный файл не приложен.')
       return { sent: false, forcedTest }
+    } else {
+      result = await telegramSend(target, text)
     }
-  } else if (docRequired) {
-    console.warn('  · доставка не выполнена: обязательный файл не приложен.')
+  } catch (e) {
+    console.warn(`  · доставка не выполнена: ${e.message}`)
     return { sent: false, forcedTest }
   }
-  const result = await telegramSend(target, text)
   if (sb) {
     await sb.from('kk_sent_notifications').insert({
-      agr_no: agrNo, client_name: clientName, category, subtype, language,
+      agr_no: agrNo, client_name: clientName, category, subtype, period, language,
       text, telegram_chat_id: String(target),
       telegram_message_id: result?.message_id ? String(result.message_id) : null,
       is_test: isTestSend,
@@ -304,7 +307,7 @@ async function runDemoToday() {
     const [category, subtype] = CAT_OF[key]
     const render = T[key][language] || T[key].RU
     const text = render(monthName(p, language), periodLbl)
-    picks.push({ agrNo: c.agr_no, clientName: c.client_name || c.chat_name, category, subtype, language, text, isTest: true })
+    picks.push({ agrNo: c.agr_no, clientName: c.client_name || c.chat_name, category, subtype, period: p, language, text, isTest: true })
     usedType.add(key); usedLang.add(language)
   }
   console.log(`\n=== ДЕМО (только сегодня, только тестовый чат ${TEST_CHAT_ID}) ===`)
@@ -330,7 +333,17 @@ async function runSendDue() {
   )
   // Re-check dedup at send time: a manual send may have landed after planning.
   const covered = await loadCoveredKeys()
-  const due = data.filter((m) => !isCoveredKey(covered, m.agr_no, m.period, m.category))
+  // Idempotency guard (prevents ANY repeat, incl. forced-test polling every 30
+  // min): a mailing already recorded in the sent-log for this
+  // (agr_no, period, category) — real OR test send — is never sent again. This
+  // is the authoritative "already processed" marker (kk_planned_mailings.status
+  // is only a secondary signal a forced-test send intentionally does not set).
+  const sentLog = await selectAll((c) =>
+    c.from('kk_sent_notifications').select('agr_no, period, category'),
+  )
+  const sentKeys = new Set(sentLog.map((s) => `${normContract(s.agr_no)}|${s.period}|${s.category}`))
+  const isSent = (m) => sentKeys.has(`${normContract(m.agr_no)}|${m.period}|${m.category}`)
+  const due = data.filter((m) => !isCoveredKey(covered, m.agr_no, m.period, m.category) && !isSent(m))
   const skipped = data.length - due.length
   // Manual-add categories must ALSO deliver the attached file (salary sheet /
   // tax report). Build a per (agr_no|period|kind) lookup of storage paths.
@@ -361,7 +374,7 @@ async function runSendDue() {
     }
     const r = await deliver({
       agrNo: m.agr_no, clientName: m.client_name, category: m.category,
-      subtype: m.subtype, language: m.language, text: m.composed_text, isTest: false,
+      subtype: m.subtype, period: m.period, language: m.language, text: m.composed_text, isTest: false,
       docUrl, docName, docRequired,
     })
     // Only advance the REAL mailing state when it was genuinely delivered to the

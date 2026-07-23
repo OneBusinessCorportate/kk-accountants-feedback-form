@@ -19,7 +19,10 @@ a planned message before it goes out; they cannot change the send time.
 
 1. **Inventory / auto vs manual** — `templates.js`: `primary_docs` (auto),
    `debts` (auto+data), `salary` (table=manual ведомость / no_employees=auto),
-   `main_taxes` (report=manual tax PDF). Manual = salary sheet + tax report.
+   `main_taxes` (report=manual tax PDF; **payment_notice** = the «Уведомление о
+   платежах» tax table — VAT/income/social/stamp/insurance/turnover/profit/
+   excise/salary/accounting with fixed treasury accounts, amounts from the tax
+   расчёт, grouped as a tax_report asset). Manual = salary sheet + tax report.
 2. **Manual-add sections** — attach a file *or* mark done by month; note
    optional. Files are private (signed URLs); bucket must be private.
 3. **30-day planner** — chain per client with a "уйдёт автоматически …"

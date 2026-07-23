@@ -213,6 +213,40 @@ I am sending the salary table and would also like to inform you that the payment
   },
 
   main_taxes: {
+    // «Уведомление о платежах» — the tax table (VAT/income/social/stamp/
+    // insurance/turnover/profit/excise/salary/accounting) with fixed treasury
+    // accounts; the amounts come from the tax расчёт (armsoft/taxservice) and
+    // accompany the manual tax report, so it is grouped as a tax_report asset.
+    payment_notice: {
+      category: 'main_taxes',
+      subtype: 'payment_notice',
+      label: 'Уведомление о платежах (таблица налогов)',
+      assembly: 'manual',
+      manualAsset: 'tax_report',
+      text: {
+        ru: `УВЕДОМЛЕНИЕ О ПЛАТЕЖАХ. Отчётный период: {{period}}.
+По результатам расчёта подлежат уплате (AMD):
+• НДС / Подоходный / Соц. оплата / Налог с оборота / Налог на прибыль (аванс) / Налог нерезидента / Акциз — р/с 900008000490
+• Гербовый сбор — р/с 900005001186
+• Страховой взнос — р/с 900005003703
+• Заработная плата; Бухгалтерские услуги — р/с 1930097970708600
+Суммы и сроки — по расчёту. При нарушении срока пеня 0,075% за день (ст. 401 НК РА). Уведомление носит информационный характер.`,
+        hy: `ՎՃԱՐՄԱՆ ԵՆԹԱԿԱ ՊԱՐՏԱՎՈՐՈՒԹՅՈՒՆՆԵՐԻ ՄԱՍԻՆ ԾԱՆՈՒՑՈՒՄ։ Հաշվետու ժամանակաշրջան՝ {{period}}։
+Հաշվարկի արդյունքներով վճարման ենթակա են (AMD)՝
+• ԱԱՀ / Եկամտային / Սոցիալական / Շրջանառության / Շահութահարկ (կանխավճար) / Ոչ ռեզիդենտի / Ակցիզ — հ/հ 900008000490
+• Դրոշմանիշային վճար — հ/հ 900005001186
+• Ապահովագրավճար — հ/հ 900005003703
+• Աշխատավարձ; Հաշվապահական ծառայություններ — հ/հ 1930097970708600
+Գումարներն ու ժամկետները՝ ըստ հաշվարկի։ Ժամկետը խախտելու դեպքում տույժ՝ օրական 0,075% (ՀՀ ՀՕ 401 հոդված)։ Ծանուցումը կրում է տեղեկատվական բնույթ։`,
+        en: `PAYMENT NOTIFICATION. Reporting period: {{period}}.
+Per the calculation, the following are payable (AMD):
+• VAT / Income / Social / Turnover / Profit (advance) / Non-resident profit / Excise — acct 900008000490
+• Stamp duty — acct 900005001186
+• Insurance contribution — acct 900005003703
+• Salary; Accounting services — acct 1930097970708600
+Amounts and deadlines per the calculation. Late payment penalty 0.075%/day (Art. 401, RA Tax Code). This notification is informational.`,
+      },
+    },
     report: {
       category: 'main_taxes',
       subtype: 'report',

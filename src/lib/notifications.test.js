@@ -100,35 +100,6 @@ describe('auto-send warning (req 3)', () => {
   })
 })
 
-describe('30-day chain expansion (req 3)', () => {
-  const today = new Date('2026-07-23T00:00:00+04:00')
-  const rows = [
-    { category: 'debts', subtype: 'service_payment', day_of_month: 5, enabled: true },
-    { category: 'salary', subtype: 'table', day_of_month: 10, enabled: true },
-    { category: 'main_taxes', subtype: 'report', day_of_month: 15, enabled: true },
-    { category: 'primary_docs', subtype: 'request', day_of_month: 28, enabled: true },
-    { category: 'debts', subtype: 'reminder', day_of_month: 5, enabled: false },
-  ]
-  it('includes at least one of every enabled category within 30 days', () => {
-    const chain = expandSchedule(rows, { today, horizonDays: 30 })
-    const cats = new Set(chain.map((c) => c.category))
-    expect(cats.has('debts')).toBe(true)
-    expect(cats.has('salary')).toBe(true)
-    expect(cats.has('main_taxes')).toBe(true)
-    expect(cats.has('primary_docs')).toBe(true)
-  })
-  it('skips disabled rows', () => {
-    const chain = expandSchedule(rows, { today, horizonDays: 30 })
-    expect(chain.some((c) => c.subtype === 'reminder')).toBe(false)
-  })
-  it('is sorted ascending by scheduled time', () => {
-    const chain = expandSchedule(rows, { today, horizonDays: 30 })
-    for (let i = 1; i < chain.length; i++) {
-      expect(chain[i].scheduledAt >= chain[i - 1].scheduledAt).toBe(true)
-    }
-  })
-})
-
 describe('dedup against mqa_chat_mailings (never double-send)', () => {
   const rows = [
     { agr_no: 'B-100', period: '202607', category: 'salary', status: 'Получил', source: 'telegram', confirmed: false },
@@ -209,24 +180,5 @@ describe('demo selection (today-only, test chat)', () => {
   })
 })
 
-describe('currentPeriod (mqa 28th cutoff)', () => {
-  it('rolls the period on the 28th', () => {
-    expect(currentPeriod('2026-07-23T09:00:00+04:00')).toBe('202607')
-    expect(currentPeriod('2026-07-28T09:00:00+04:00')).toBe('202608')
-    expect(currentPeriod('2026-12-29T09:00:00+04:00')).toBe('202701')
-  })
-})
-
-describe('expandSchedule month-overflow (day > 28)', () => {
-  it('does not skip a short month for a day-31 schedule', () => {
-    const today = new Date('2026-01-15T00:00:00+04:00')
-    const rows = [{ category: 'debts', subtype: 'reminder', day_of_month: 31, enabled: true }]
-    const chain = expandSchedule(rows, { today, horizonDays: 90 })
-    // Jan 31, Feb 28 (clamped), Mar 31 must all appear — Feb must NOT be
-    // skipped (the old setMonth overflow turned Jan 31 +1 into early March).
-    const months = chain.map((c) => c.scheduledAt.getMonth()) // 0,1,2
-    expect(months).toContain(0)
-    expect(months).toContain(1)
-    expect(months).toContain(2)
-  })
-})
+// expandSchedule / currentPeriod / occurrence boundary tests live in
+// schedule.test.js (the shared module), not duplicated here.

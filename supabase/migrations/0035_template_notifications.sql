@@ -94,7 +94,7 @@ create index if not exists kk_planned_mailing_edits_planned_idx on public.kk_pla
 create table if not exists public.kk_sent_notifications (
   id                  uuid primary key default gen_random_uuid(),
   agr_no              text not null,
-  client_name         text, category text not null, subtype text, language text,
+  client_name         text, category text not null, subtype text, period text, language text,
   text                text not null,
   telegram_chat_id    text, telegram_message_id text,
   is_test             boolean not null default false,
@@ -103,6 +103,8 @@ create table if not exists public.kk_sent_notifications (
 );
 create index if not exists kk_sent_notifications_agr_idx  on public.kk_sent_notifications (agr_no);
 create index if not exists kk_sent_notifications_sent_idx on public.kk_sent_notifications (sent_at);
+-- dedup key so the sender sends a mailing once per (contract, period, category)
+create index if not exists kk_sent_notifications_dedup_idx on public.kk_sent_notifications (agr_no, period, category);
 
 create table if not exists public.kk_manual_mailing_assets (
   id           uuid primary key default gen_random_uuid(),
