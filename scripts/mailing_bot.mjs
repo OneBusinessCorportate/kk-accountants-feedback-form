@@ -1,37 +1,15 @@
 #!/usr/bin/env node
 /*
- * Template-notifications bot (шаблонные рассылки).
- *
- * Sends the planned client mailings automatically via the Telegram Bot API
- * (@onebusiness_agent_bot) and logs every send into kk_sent_notifications.
- *
- * ─────────────────────────────────────────────────────────────────────────
- *  TWO HARD SAFETY RULES (do not remove without an explicit owner decision):
- *
- *  1. SENDING LOCK. Nothing is ever sent unless ALLOW_SENDING === 'true'.
- *     Default is preview/dry-run: the message is composed and printed only.
- *
- *  2. TEST-CHAT-ONLY OVERRIDE. While FORCE_TEST_CHAT_ONLY is true, EVERY send
- *     is redirected to TEST_CHAT_ID (-5225180694) regardless of the client's
- *     real chat. A real client chat can NEVER receive a message in this phase.
- *     Flip to per-client delivery only after the owner says so AND the numeric
- *     chat_id registry + bot membership are verified (see docs).
- * ─────────────────────────────────────────────────────────────────────────
- *
- * Modes (MODE env or --mode):
- *   preview      (default) — build today's due mailings, print, never send.
- *   demo-today            — the owner's demo: 5 random ACTIVE companies, mixed
- *                           languages + mixed mailing types, "break the schedule
- *                           only today". Preview unless sending is unlocked;
- *                           logged with is_test=true (never written to mqa).
- *   send                  — send today's due mailings (guarded by both rules).
- *
- * Env:
- *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (service role: writes the log)
- *   TELEGRAM_BOT_TOKEN                        (@onebusiness_agent_bot)
- *   TEST_CHAT_ID       default -5225180694
- *   ALLOW_SENDING      'true' to actually send (default: off → dry-run)
- *   DEMO_COUNT         default 5
+ * Template-notifications bot (шаблонные рассылки). Sends planned client mailings
+ * via the Telegram Bot API (@onebusiness_agent_bot) and logs each into
+ * kk_sent_notifications. TWO HARD SAFETY RULES (see scripts/lib/mailingSafety.mjs):
+ *   1. Nothing sends unless ALLOW_SENDING==='true' (default: dry-run preview).
+ *   2. FORCE_TEST_CHAT_ONLY forces EVERY send to the test chat -5225180694 — a
+ *      real client chat can never receive anything this phase.
+ * Modes (--mode): plan (materialise chain) · preview (read-only) · demo-today
+ * (5 random active companies, is_test) · send (plan then send, both rules).
+ * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TELEGRAM_BOT_TOKEN,
+ * TEST_CHAT_ID (default -5225180694), ALLOW_SENDING, DEMO_COUNT.
  */
 import { createClient } from '@supabase/supabase-js'
 import { FORCED_TEST_CHAT, resolveTarget, canDeliver } from './lib/mailingSafety.mjs'

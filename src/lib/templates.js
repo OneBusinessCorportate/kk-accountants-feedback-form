@@ -1,25 +1,10 @@
 // Template inventory for automated client notifications (шаблонные рассылки).
-//
-// Owner rule (2026-07): template notifications are sent ONLY automatically by
-// the bot — accountants no longer press "send". This module is the single,
-// DB-free source of truth for WHAT each template says and WHICH parts are
-// auto-assembled vs must be added by hand. It is imported by both the cabinet
-// UI (preview + planner) and the sender script, so "what you preview" ===
-// "what the client receives".
-//
-// Categories mirror Margarita's mqa_chat_mailings.category exactly, so dedup /
-// "already sent?" detection lines up 1:1 with her QA platform:
-//   primary_docs — первичка / info request        (schedule: до 28)
-//   debts        — долги / оплата услуг             (schedule: до 5)
-//   salary       — заработная плата                 (schedule: до 10)
-//   main_taxes   — налоги / отчёт                    (schedule: до 15)
-//
-// Assembly classification (req 1):
-//   'auto'   — fully assembled from data + period + language, nothing manual.
-//   'manual' — an accountant must attach a file or mark it done first
-//              (the salary ведомость and the tax report PDF/расчёт). The text
-//              still auto-assembles; the FILE is the manual unit (req 2).
-//   'mixed'  — auto text + an amount/field pulled from data, no file needed.
+// DB-free single source of truth for WHAT each template says and WHICH parts
+// are auto vs manual; imported by the cabinet UI and the sender so preview ===
+// what the client receives. Categories mirror mqa_chat_mailings.category
+// (primary_docs/debts/salary/main_taxes) for 1:1 dedup. Assembly (req 1):
+// 'auto' (data+period+language), 'manual' (accountant attaches a file first —
+// salary ведомость / tax report PDF, req 2), 'mixed' (auto text + an amount).
 
 export const MAILING_CATEGORIES = ['primary_docs', 'debts', 'salary', 'main_taxes']
 

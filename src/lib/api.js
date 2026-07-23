@@ -731,7 +731,7 @@ export async function fetchArtyomComments({ from, to, accountantName } = {}) {
 
 // All mailing reads go through SECURITY DEFINER RPCs that scope rows to the
 // caller's own clients (supervisors see all) — server-side isolation, since the
-// anon SPA has no auth session to key RLS on (migration 0036). The login code
+// anon SPA has no auth session to key RLS on (migration 0035). The login code
 // is the identity, exactly like acknowledgeViolation.
 function rpcCode(loginCode) {
   const code = loginCode || getStoredCode()
