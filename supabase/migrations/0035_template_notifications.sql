@@ -233,12 +233,15 @@ create or replace function public.kk_save_manual_asset(
   p_login_code text, p_agr_no text, p_period text, p_kind text,
   p_storage_path text, p_file_name text, p_marked_done boolean, p_note text)
 returns public.kk_manual_mailing_assets language plpgsql security definer set search_path=public,pg_temp as $$
-declare c record; v_owner text; v_row public.kk_manual_mailing_assets; begin
+declare c record; v_owner text; v_found boolean; v_row public.kk_manual_mailing_assets; begin
   select * into c from public.kk_caller(p_login_code);
   if p_kind not in ('salary_sheet','tax_report') then
     raise exception 'Недопустимый тип вложения.' using errcode='22023'; end if;
-  select accountant_id into v_owner from public.kk_company_settings where agr_no=p_agr_no;
-  if not c.is_all and v_owner is not null and v_owner<>c.employee_id::text then
+  select accountant_id, true into v_owner, v_found from public.kk_company_settings where agr_no=p_agr_no;
+  if not v_found then raise exception 'Неизвестная компания.' using errcode='P0002'; end if;
+  -- deny when the company has no resolved owner (unless supervisor): never let
+  -- a valid code write for an unassigned/unknown contract.
+  if not c.is_all and (v_owner is null or v_owner<>c.employee_id::text) then
     raise exception 'Можно вкладывать файлы только своим клиентам.' using errcode='42501'; end if;
   insert into public.kk_manual_mailing_assets
     (agr_no,period,kind,storage_path,file_name,public_url,marked_done,note,uploaded_by,updated_at)
@@ -265,7 +268,7 @@ declare c record; v_old text; v_owner text; begin
     raise exception 'Текст сообщения не может быть пустым.' using errcode='22023'; end if;
   select composed_text, accountant_id into v_old, v_owner from public.kk_planned_mailings where kk_planned_mailings.id=p_planned_id;
   if not found then raise exception 'Планируемое сообщение не найдено.' using errcode='P0002'; end if;
-  if not c.is_all and v_owner is not null and v_owner<>c.employee_id::text then
+  if not c.is_all and (v_owner is null or v_owner<>c.employee_id::text) then
     raise exception 'Можно редактировать только собственные рассылки.' using errcode='42501'; end if;
   update public.kk_planned_mailings set composed_text=p_new_text, status='edited', edited=true, updated_at=now()
     where kk_planned_mailings.id=p_planned_id;
@@ -289,7 +292,9 @@ declare c record; v_id uuid; v_old text; v_owner text; v_cs record; v_name text;
   if not found then raise exception 'Неизвестная компания.' using errcode='P0002'; end if;
   select m.id, m.composed_text, m.accountant_id into v_id, v_old, v_owner from public.kk_planned_mailings m
     where m.agr_no=p_agr_no and m.category=p_category and m.subtype=p_subtype and m.period=p_period and m.is_test=coalesce(p_is_test,false);
-  if not c.is_all and coalesce(v_owner,v_cs.accountant_id) is not null and coalesce(v_owner,v_cs.accountant_id)<>c.employee_id::text then
+  -- effective owner = existing row's owner, else the company's resolved owner;
+  -- deny non-supervisors when there is no owner (bot rows have accountant_id null).
+  if not c.is_all and (coalesce(v_owner,v_cs.accountant_id) is null or coalesce(v_owner,v_cs.accountant_id)<>c.employee_id::text) then
     raise exception 'Можно редактировать только собственные рассылки.' using errcode='42501'; end if;
   select full_name into v_name from public.resolve_login_code(p_login_code) limit 1;
   if v_id is null then

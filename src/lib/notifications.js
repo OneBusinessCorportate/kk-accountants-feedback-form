@@ -19,8 +19,11 @@ import {
   getTemplate,
   manualAssetForCategory,
 } from './templates'
+// Schedule/period math lives in the shared module so the cabinet and the bot
+// agree on Yerevan-anchored send times (see scripts/lib/schedule.mjs).
+import { expandSchedule, currentPeriod } from '../../scripts/lib/schedule.mjs'
 
-export { normalizeContract, normalizeChatLink }
+export { normalizeContract, normalizeChatLink, expandSchedule, currentPeriod }
 
 // ---- Language resolution (req 4) -------------------------------------------
 //
@@ -95,25 +98,7 @@ export function monthName(period, language = 'RU') {
   return (MONTHS[language] || MONTHS.RU)[mm - 1]
 }
 
-// Current reporting period as 'YYYYMM', following Margarita's 28th-cutoff cycle
-// (from the 28th the period rolls to next month) so it lines up with
-// mqa_chat_mailings.period. `now` is passed in (no hidden Date.now()).
-export function currentPeriod(now) {
-  const d = now ? new Date(now) : null
-  if (!d || Number.isNaN(d.getTime())) return ''
-  // interpret the wall clock in Asia/Yerevan (UTC+4, no DST)
-  const y = new Date(d.getTime() + 4 * 3600 * 1000)
-  let year = y.getUTCFullYear()
-  let month = y.getUTCMonth() // 0-based
-  if (y.getUTCDate() >= 28) {
-    month += 1
-    if (month > 11) {
-      month = 0
-      year += 1
-    }
-  }
-  return `${year}${String(month + 1).padStart(2, '0')}`
-}
+// currentPeriod is re-exported from scripts/lib/schedule.mjs (Yerevan cutoff).
 
 // period 'YYYYMM' → 'MM/YYYY' for the реквизиты line.
 export function periodLabel(period) {
@@ -181,45 +166,8 @@ export function formatDateTime(value) {
   })
 }
 
-// ---- 30-day planned chain (req 3) ------------------------------------------
-//
-// Expand each enabled schedule row into concrete dated occurrences between
-// `today` and `today + horizonDays`. A schedule row is
-// { category, subtype, day_of_month, send_hour, send_minute, enabled }.
-// The chain contains AT LEAST one of every enabled category (req 3): if a
-// category's monthly day falls outside the window we still surface its next
-// occurrence beyond the horizon so the accountant sees the whole chain.
-export function expandSchedule(scheduleRows, { today, horizonDays = 30 } = {}) {
-  const start = startOfDay(today)
-  if (!start) return []
-  const end = addDays(start, horizonDays)
-  const out = []
-  for (const row of scheduleRows || []) {
-    if (row.enabled === false) continue
-    const hour = row.send_hour ?? 11
-    const minute = row.send_minute ?? 0
-    let occ = occurrenceOnOrAfter(start, row.day_of_month, hour, minute)
-    let within = false
-    while (occ <= end) {
-      out.push(occurrence(row, occ))
-      within = true
-      occ = occurrenceOnOrAfter(addMonths(occ, 1), row.day_of_month, hour, minute)
-    }
-    // guarantee ≥1 of every enabled type even if none fell inside the window
-    if (!within) out.push(occurrence(row, occ))
-  }
-  return out.sort((a, b) => a.scheduledAt - b.scheduledAt)
-}
-
-function occurrence(row, when) {
-  return {
-    category: row.category,
-    subtype: row.subtype,
-    day_of_month: row.day_of_month,
-    scheduledAt: when,
-    scheduledISO: when.toISOString(),
-  }
-}
+// The 30-day planned chain (req 3) is built by expandSchedule, re-exported from
+// scripts/lib/schedule.mjs (Yerevan-anchored, ≥1 of every enabled category).
 
 // ---- Dedup against Margarita's real mailing log (never double-send) --------
 //
@@ -314,48 +262,6 @@ export function pickDemoMailings(candidates, { count = 5 } = {}) {
     usedType.add(templateKey(tpl.category, tpl.subtype))
   }
   return out
-}
-
-// ---- date helpers (Date math without touching Date.now) --------------------
-function startOfDay(value) {
-  const d = value ? new Date(value) : null
-  if (!d || Number.isNaN(d.getTime())) return null
-  const c = new Date(d)
-  c.setHours(0, 0, 0, 0)
-  return c
-}
-function addDays(d, n) {
-  const c = new Date(d)
-  c.setDate(c.getDate() + n)
-  return c
-}
-function addMonths(d, n) {
-  // Set day to 1 BEFORE shifting the month so e.g. Jan 31 + 1 doesn't overflow
-  // into March (occurrenceOnOrAfter re-clamps the day for the target month).
-  const c = new Date(d)
-  c.setDate(1)
-  c.setMonth(c.getMonth() + n)
-  return c
-}
-// The dueDay-th of d's month at hour:minute; clamps to month length.
-function occurrenceOnOrAfter(from, dayOfMonth, hour, minute) {
-  let year = from.getFullYear()
-  let month = from.getMonth()
-  const make = (y, m) => {
-    const last = new Date(y, m + 1, 0).getDate()
-    const day = Math.min(dayOfMonth || 1, last)
-    return new Date(y, m, day, hour, minute, 0, 0)
-  }
-  let occ = make(year, month)
-  if (occ < from) {
-    month += 1
-    if (month > 11) {
-      month = 0
-      year += 1
-    }
-    occ = make(year, month)
-  }
-  return occ
 }
 
 export { MAILING_CATEGORIES, CATEGORY_DEFAULT_DAY }

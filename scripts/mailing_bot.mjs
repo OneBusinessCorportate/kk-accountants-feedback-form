@@ -13,6 +13,8 @@
  */
 import { createClient } from '@supabase/supabase-js'
 import { FORCED_TEST_CHAT, resolveTarget, canDeliver } from './lib/mailingSafety.mjs'
+// Yerevan-anchored schedule math shared with the cabinet (src/lib/notifications.js)
+import { occurrenceOnOrAfter, currentPeriod as period } from './lib/schedule.mjs'
 
 // ---- HARD SAFETY CONSTANTS --------------------------------------------------
 const FORCE_TEST_CHAT_ONLY = true // rule 2 — never send to a real client chat
@@ -82,13 +84,6 @@ function langFromName(name) {
   if (/\b(RU|RUS)\b/.test(up)) return 'RU'
   return null
 }
-function period(now) {
-  const y = new Date(now.getTime() + 4 * 3600 * 1000)
-  let year = y.getUTCFullYear(), month = y.getUTCMonth()
-  if (y.getUTCDate() >= 28) { month += 1; if (month > 11) { month = 0; year += 1 } }
-  return `${year}${String(month + 1).padStart(2, '0')}`
-}
-
 async function telegramSend(chatId, text) {
   const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
     method: 'POST',
@@ -111,7 +106,7 @@ async function telegramSendDocument(chatId, documentUrl, caption) {
   return json.result
 }
 
-async function deliver({ agrNo, clientName, category, subtype, language, text, isTest, docUrl, docName }) {
+async function deliver({ agrNo, clientName, category, subtype, language, text, isTest, docUrl, docName, docRequired }) {
   // RULE 2: the destination is forced to the test chat while the override is on
   // (resolveTarget ignores any client chat id). RULE 1 (+ preview): canDeliver.
   const target = resolveTarget({ forceTestOnly: FORCE_TEST_CHAT_ONLY, clientChatId: null })
@@ -131,16 +126,21 @@ async function deliver({ agrNo, clientName, category, subtype, language, text, i
     console.log('  · TELEGRAM_BOT_TOKEN не задан — пропуск.')
     return { sent: false, forcedTest }
   }
-  const result = await telegramSend(target, text)
-  // Manual-add categories (salary sheet / tax report) must also DELIVER the
-  // attached file, not just the text (review fix #1).
+  // A required attachment (salary sheet / tax report) is sent FIRST — if it
+  // fails, the whole delivery FAILS (not marked sent, retried next run) so a
+  // mandatory file can never be silently skipped (review fix #3).
   if (docUrl) {
     try {
       await telegramSendDocument(target, docUrl, docName || '')
     } catch (e) {
-      console.warn(`  · не удалось отправить файл: ${e.message}`)
+      console.warn(`  · доставка не выполнена: не удалось отправить файл: ${e.message}`)
+      return { sent: false, forcedTest }
     }
+  } else if (docRequired) {
+    console.warn('  · доставка не выполнена: обязательный файл не приложен.')
+    return { sent: false, forcedTest }
   }
+  const result = await telegramSend(target, text)
   if (sb) {
     await sb.from('kk_sent_notifications').insert({
       agr_no: agrNo, client_name: clientName, category, subtype, language,
@@ -199,20 +199,8 @@ function isCoveredKey(covered, agrNo, p, category) {
   return covered.has(`${normContract(agrNo)}|${p}|${category}`)
 }
 
-// day-of-month occurrence on/after `from` (clamped to month length)
-function occurrenceOnOrAfter(from, day, hour, minute) {
-  const make = (y, m) => {
-    const last = new Date(y, m + 1, 0).getDate()
-    return new Date(y, m, Math.min(day || 1, last), hour, minute, 0, 0)
-  }
-  let occ = make(from.getFullYear(), from.getMonth())
-  if (occ < from) {
-    const d = new Date(from.getFullYear(), from.getMonth(), 1)
-    d.setMonth(d.getMonth() + 1)
-    occ = make(d.getFullYear(), d.getMonth())
-  }
-  return occ
-}
+// occurrenceOnOrAfter is imported from ./lib/schedule.mjs (Yerevan-anchored,
+// returns a UTC instant), shared with the cabinet planner.
 
 // Materialise the 30-day chain into kk_planned_mailings (service role) so the
 // bot's send path has rows to send even for un-edited (normal auto) mailings.
@@ -258,8 +246,7 @@ async function runPlan() {
           accountant_id: null, status, is_test: false,
         })
       }
-      const n = new Date(occ.getFullYear(), occ.getMonth(), 1); n.setMonth(n.getMonth() + 1)
-      occ = occurrenceOnOrAfter(n, s.day_of_month, s.send_hour ?? 11, s.send_minute ?? 0)
+      occ = occurrenceOnOrAfter(new Date(occ.getTime() + 1000), s.day_of_month, s.send_hour ?? 11, s.send_minute ?? 0)
     }
   }
   // NEVER clobber an accountant-edited row (status='edited' or 'sent').
@@ -370,7 +357,7 @@ async function runSendDue() {
     const r = await deliver({
       agrNo: m.agr_no, clientName: m.client_name, category: m.category,
       subtype: m.subtype, language: m.language, text: m.composed_text, isTest: false,
-      docUrl, docName,
+      docUrl, docName, docRequired: !!kind,
     })
     // Only advance the REAL mailing state when it was genuinely delivered to the
     // client — a forced test-chat send must NOT mark the real row sent (fix #2).
