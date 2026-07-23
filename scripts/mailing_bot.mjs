@@ -122,32 +122,57 @@ async function telegramSend(chatId, text) {
   return json.result
 }
 
-async function deliver({ agrNo, clientName, category, subtype, language, text, isTest }) {
+async function telegramSendDocument(chatId, documentUrl, caption) {
+  const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, document: documentUrl, caption: caption || undefined }),
+  })
+  const json = await res.json()
+  if (!json.ok) throw new Error(`Telegram(doc): ${json.description || res.status}`)
+  return json.result
+}
+
+async function deliver({ agrNo, clientName, category, subtype, language, text, isTest, docUrl, docName }) {
   // RULE 2: the destination is forced to the test chat while the override is on
   // (resolveTarget ignores any client chat id). RULE 1 (+ preview): canDeliver.
   const target = resolveTarget({ forceTestOnly: FORCE_TEST_CHAT_ONLY, clientChatId: null })
-  const header = `— [${category}/${subtype} · ${language} · ${clientName || agrNo}] →\n`
-  console.log(`\n${header}${text}\n`)
+  // While the test override is on, every send is a TEST send — it must not
+  // consume the real mailing's state (rule 2 / review fix #2).
+  const forcedTest = FORCE_TEST_CHAT_ONLY
+  const isTestSend = !!isTest || forcedTest
+  // The metadata header is for the OPERATOR CONSOLE ONLY — it is never part of
+  // the message the client receives (review fix: no header pollution).
+  console.log(`\n— [${category}/${subtype} · ${language} · ${clientName || agrNo}] →\n${text}\n`)
 
   if (!canDeliver({ allowSending: ALLOW_SENDING, previewMode: PREVIEW, target })) {
     console.log(`  · DRY-RUN (preview=${PREVIEW}, allow_sending=${ALLOW_SENDING}) — не отправлено.`)
-    return { sent: false }
+    return { sent: false, forcedTest }
   }
   if (!BOT_TOKEN) {
     console.log('  · TELEGRAM_BOT_TOKEN не задан — пропуск.')
-    return { sent: false }
+    return { sent: false, forcedTest }
   }
-  const result = await telegramSend(target, `${header}${text}`)
+  const result = await telegramSend(target, text)
+  // Manual-add categories (salary sheet / tax report) must also DELIVER the
+  // attached file, not just the text (review fix #1).
+  if (docUrl) {
+    try {
+      await telegramSendDocument(target, docUrl, docName || '')
+    } catch (e) {
+      console.warn(`  · не удалось отправить файл: ${e.message}`)
+    }
+  }
   if (sb) {
     await sb.from('kk_sent_notifications').insert({
       agr_no: agrNo, client_name: clientName, category, subtype, language,
       text, telegram_chat_id: String(target),
       telegram_message_id: result?.message_id ? String(result.message_id) : null,
-      is_test: !!isTest,
+      is_test: isTestSend,
     })
   }
-  console.log(`  · ОТПРАВЛЕНО в тестовый чат ${target} (message_id=${result?.message_id}).`)
-  return { sent: true, messageId: result?.message_id }
+  console.log(`  · ОТПРАВЛЕНО в тестовый чат ${target} (message_id=${result?.message_id}${docUrl ? ', +файл' : ''}).`)
+  return { sent: true, forcedTest, messageId: result?.message_id }
 }
 
 // PostgREST caps a select at ~1000 rows; paginate so plan/dedup never silently
@@ -342,16 +367,36 @@ async function runSendDue() {
   const covered = await loadCoveredKeys()
   const due = data.filter((m) => !isCoveredKey(covered, m.agr_no, m.period, m.category))
   const skipped = data.length - due.length
+  // Manual-add categories must ALSO deliver the attached file (salary sheet /
+  // tax report). Build a per (agr_no|period|kind) lookup of storage paths.
+  const manualKind = { salary: 'salary_sheet', main_taxes: 'tax_report' }
+  const assets = await selectAll((c) =>
+    c.from('kk_manual_mailing_assets').select('agr_no, period, kind, storage_path'),
+  )
+  const assetPath = new Map(
+    assets.filter((a) => a.storage_path).map((a) => [`${normContract(a.agr_no)}|${a.period}|${a.kind}`, a.storage_path]),
+  )
   console.log(`Due mailings: ${due.length} (skipped ${skipped} covered). ${PREVIEW || !ALLOW_SENDING ? 'ПРЕДПРОСМОТР' : 'ОТПРАВКА'} (все → тестовый чат).`)
   for (const m of due) {
+    let docUrl = null
+    let docName = null
+    const kind = manualKind[m.category]
+    if (kind) {
+      const path = assetPath.get(`${normContract(m.agr_no)}|${m.period}|${kind}`)
+      if (path) {
+        const { data: signed } = await sb.storage.from('kk-attachments').createSignedUrl(path, 900)
+        docUrl = signed?.signedUrl || null
+        docName = path.split('/').pop()
+      }
+    }
     const r = await deliver({
       agrNo: m.agr_no, clientName: m.client_name, category: m.category,
       subtype: m.subtype, language: m.language, text: m.composed_text, isTest: false,
+      docUrl, docName,
     })
-    if (r.sent) {
-      // Needs the service role to actually update (kk_planned_mailings is
-      // select-only for anon). Report if the row wasn't flipped so we don't
-      // silently re-send on the next run.
+    // Only advance the REAL mailing state when it was genuinely delivered to the
+    // client — a forced test-chat send must NOT mark the real row sent (fix #2).
+    if (r.sent && !r.forcedTest) {
       const { data: upd, error: ue } = await sb
         .from('kk_planned_mailings').update({ status: 'sent' }).eq('id', m.id).select('id')
       if (ue || !upd?.length) {

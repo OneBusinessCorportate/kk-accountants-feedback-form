@@ -729,35 +729,37 @@ export async function fetchArtyomComments({ from, to, accountantName } = {}) {
 // selects on the kk_* tables; the edit is a SECURITY DEFINER RPC carrying the
 // login code (the acknowledgeViolation pattern).
 
+// All mailing reads go through SECURITY DEFINER RPCs that scope rows to the
+// caller's own clients (supervisors see all) — server-side isolation, since the
+// anon SPA has no auth session to key RLS on (migration 0036). The login code
+// is the identity, exactly like acknowledgeViolation.
+function rpcCode(loginCode) {
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  return code
+}
+async function rpcRows(name, args) {
+  const { data, error } = await supabase.rpc(name, args)
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
 /** Per-company settings (language, telegram_chat_id, active, owner) — req 4. */
-export async function fetchCompanySettings() {
-  return unwrap(
-    await supabase
-      .from('kk_company_settings')
-      .select('agr_no, language, telegram_chat_id, bot_can_send, active, accountant_id, accountant_name, client_name, chat_name'),
-  )
+export async function fetchCompanySettings({ loginCode } = {}) {
+  return rpcRows('kk_list_company_settings', { p_login_code: rpcCode(loginCode) })
 }
 
 /** Per-company schedule rows (individual schedule per company). */
-export async function fetchMailingSchedule() {
-  return unwrap(
-    await supabase
-      .from('kk_mailing_schedule')
-      .select('id, agr_no, category, subtype, day_of_month, send_hour, send_minute, enabled'),
-  )
+export async function fetchMailingSchedule({ loginCode } = {}) {
+  return rpcRows('kk_list_mailing_schedule', { p_login_code: rpcCode(loginCode) })
 }
 
-/** The materialised 30-day planned chain (req 3). */
-export async function fetchPlannedMailings({ accountantId, includeTest = false } = {}) {
-  let q = supabase
-    .from('kk_planned_mailings')
-    .select(
-      'id, agr_no, client_name, chat_name, category, subtype, period, language, scheduled_at, composed_text, accountant_id, accountant_name, status, edited, is_test',
-    )
-    .order('scheduled_at', { ascending: true })
-  if (!includeTest) q = q.eq('is_test', false)
-  if (accountantId) q = q.eq('accountant_id', accountantId)
-  return unwrap(await q)
+/** The materialised 30-day planned chain (req 3), scoped to the caller. */
+export async function fetchPlannedMailings({ includeTest = false, loginCode } = {}) {
+  return rpcRows('kk_list_planned_mailings', {
+    p_login_code: rpcCode(loginCode),
+    p_include_test: includeTest,
+  })
 }
 
 /**
@@ -807,35 +809,28 @@ export async function savePlannedMailing({
   return Array.isArray(data) ? data[0] : data
 }
 
-/** Edit history for one planned message (who changed what, when). */
-export async function fetchPlannedMailingEdits(plannedId) {
-  return unwrap(
-    await supabase
-      .from('kk_planned_mailing_edits')
-      .select('id, old_text, new_text, edited_by, edited_at')
-      .eq('planned_id', plannedId)
-      .order('edited_at', { ascending: false }),
-  )
+/** Edit history for one planned message (who changed what, when) — scoped. */
+export async function fetchPlannedMailingEdits(plannedId, { loginCode } = {}) {
+  return rpcRows('kk_list_planned_mailing_edits', {
+    p_login_code: rpcCode(loginCode),
+    p_planned_id: plannedId,
+  })
 }
 
-/** The sent-notifications log (req 6). Optionally narrowed to one contract. */
-export async function fetchSentNotifications({ agrNo, limit = 500 } = {}) {
-  let q = supabase
-    .from('kk_sent_notifications')
-    .select('id, agr_no, client_name, category, subtype, language, text, telegram_chat_id, is_test, sent_at')
-    .order('sent_at', { ascending: false })
-    .limit(limit)
-  if (agrNo) q = q.eq('agr_no', agrNo)
-  return unwrap(await q)
+/** The sent-notifications log (req 6), scoped to the caller's clients. */
+export async function fetchSentNotifications({ limit = 500, loginCode } = {}) {
+  return rpcRows('kk_list_sent_notifications', {
+    p_login_code: rpcCode(loginCode),
+    p_limit: limit,
+  })
 }
 
 /** Manual-add files/marks (salary sheet + tax report), optionally by period. */
-export async function fetchManualAssets({ period } = {}) {
-  let q = supabase
-    .from('kk_manual_mailing_assets')
-    .select('id, agr_no, period, kind, storage_path, file_name, public_url, marked_done, note, uploaded_by, updated_at')
-  if (period) q = q.eq('period', period)
-  return unwrap(await q)
+export async function fetchManualAssets({ period, loginCode } = {}) {
+  return rpcRows('kk_list_manual_assets', {
+    p_login_code: rpcCode(loginCode),
+    p_period: period ?? null,
+  })
 }
 
 /**
@@ -843,38 +838,35 @@ export async function fetchManualAssets({ period } = {}) {
  * required unit; `note` is optional and never forced. Upserts one row per
  * (agr_no, period, kind).
  */
-export async function saveManualAsset({ agrNo, period, kind, file, markedDone, note, uploadedBy } = {}) {
-  const row = {
-    agr_no: agrNo,
-    period,
-    kind,
-    marked_done: markedDone ?? false,
-    note: note || null,
-    uploaded_by: uploadedBy || null,
-    updated_at: new Date().toISOString(),
-  }
+export async function saveManualAsset({ agrNo, period, kind, file, markedDone, note, loginCode } = {}) {
+  const code = rpcCode(loginCode)
+  let storagePath = null
+  let fileName = null
   if (file) {
     const safe = file.name.replace(/[^\w.\-]+/g, '_')
-    const path = `mailings/${normalizeAssetKey(agrNo)}/${period}/${kind}/${safe}`
+    storagePath = `mailings/${normalizeAssetKey(agrNo)}/${period}/${kind}/${safe}`
     const { error: upErr } = await supabase.storage
       .from('kk-attachments')
-      .upload(path, file, { contentType: file.type || undefined, upsert: true })
+      .upload(storagePath, file, { contentType: file.type || undefined, upsert: true })
     if (upErr) throw new Error(upErr.message)
-    // Salary sheets / tax reports are sensitive client documents — we store only
-    // the private storage path and hand out short-lived SIGNED urls on demand
-    // (never a public url). The bucket must be private (see docs).
-    row.storage_path = path
-    row.file_name = file.name
-    row.public_url = null
-    row.marked_done = true
+    fileName = file.name
+    // Salary sheets / tax reports are sensitive client documents — we keep only
+    // the private storage path (no public url) and hand out short-lived SIGNED
+    // urls on demand. The kk-attachments bucket must be private (see docs).
   }
-  return unwrap(
-    await supabase
-      .from('kk_manual_mailing_assets')
-      .upsert(row, { onConflict: 'agr_no,period,kind' })
-      .select()
-      .single(),
-  )
+  // The row write is ownership-checked server-side (kk_save_manual_asset).
+  const { data, error } = await supabase.rpc('kk_save_manual_asset', {
+    p_login_code: code,
+    p_agr_no: agrNo,
+    p_period: period,
+    p_kind: kind,
+    p_storage_path: storagePath,
+    p_file_name: fileName,
+    p_marked_done: markedDone ?? !!file,
+    p_note: note || null,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
 }
 
 /** Short-lived signed URL to view a manual-add file (private bucket). */

@@ -36,7 +36,21 @@ goes out. Time is fixed by the schedule.
 Writes that must be attributable go through `SECURITY DEFINER` RPCs that
 resolve the login code to an employee (the migration-0027 pattern):
 `kk_edit_planned_mailing` and `kk_upsert_planned_mailing` (edit + audit),
-`kk_extract_tg_id` (chat_link → numeric id).
+`kk_save_manual_asset` (ownership-checked file/mark), `kk_extract_tg_id`
+(chat_link → numeric id).
+
+**Per-role isolation is server-side (migration 0036).** The SPA has no Supabase
+Auth session (identity = a login code), so the mailing tables are locked (no
+anon SELECT/DML) and every read is a scoped `SECURITY DEFINER` RPC —
+`kk_list_company_settings` / `kk_list_mailing_schedule` /
+`kk_list_planned_mailings` / `kk_list_planned_mailing_edits` /
+`kk_list_sent_notifications` / `kk_list_manual_assets` — returning only the
+caller's own clients (supervisors see all). A regular accountant cannot read
+another accountant's plans, sent-log, or attachment records by querying Supabase
+directly; the browser filter is no longer the only guard. The bot uses the
+service-role key and bypasses this. The manual-add file itself (salary sheet /
+tax report) is delivered by the bot via `sendDocument`, not only referenced in
+text.
 
 ## Template inventory & auto/manual split (req 1)
 
