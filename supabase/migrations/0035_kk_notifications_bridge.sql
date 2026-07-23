@@ -357,24 +357,32 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_id bigint := p_planned_id::bigint;
-  o    record;
+  v_id  bigint := p_planned_id::bigint;
+  o     record;
+  v_hit bigint;
 begin
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
   if o.status in ('sent', 'cancelled') then
     raise exception 'Это уведомление уже отправлено или отменено.' using errcode = '22023';
   end if;
 
-  insert into public.mqa_notification_edits (planned_id, action, editor)
-  values (v_id, 'approve', o.full_name);
-
+  -- Atomic, status-guarded write; audit only after a real change (race-safe:
+  -- the bot flipping the row to 'sent' meanwhile leaves 0 rows updated).
   update public.mqa_planned_notifications p
      set status      = 'approved',
          approved_by = o.full_name,
          approved_at = now(),
          updated_at  = now()
    where p.id = v_id
-     and p.status in ('planned', 'edited');
+     and p.status in ('planned', 'edited')
+  returning p.id into v_hit;
+
+  if v_hit is null then
+    raise exception 'Уведомление уже отправлено или изменило статус — подтверждение не применено.' using errcode = '22023';
+  end if;
+
+  insert into public.mqa_notification_edits (planned_id, action, editor)
+  values (v_id, 'approve', o.full_name);
 
   return query
     select p.id, p.status, p.approved_by, p.approved_at
@@ -393,24 +401,32 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_id bigint := p_planned_id::bigint;
-  o    record;
+  v_id  bigint := p_planned_id::bigint;
+  o     record;
+  v_hit bigint;
 begin
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
   if o.status = 'sent' then
     raise exception 'Это уведомление уже отправлено — отмена недоступна.' using errcode = '22023';
   end if;
 
-  insert into public.mqa_notification_edits (planned_id, action, editor)
-  values (v_id, 'cancel', o.full_name);
-
+  -- Atomic, status-guarded write; audit only after a real change (race-safe:
+  -- the bot flipping the row to 'sent' meanwhile leaves 0 rows updated).
   update public.mqa_planned_notifications p
      set status       = 'cancelled',
          cancelled_by = o.full_name,
          cancelled_at = now(),
          updated_at   = now()
    where p.id = v_id
-     and p.status <> 'sent';
+     and p.status <> 'sent'
+  returning p.id into v_hit;
+
+  if v_hit is null then
+    raise exception 'Это уведомление уже отправлено — отмена не применена.' using errcode = '22023';
+  end if;
+
+  insert into public.mqa_notification_edits (planned_id, action, editor)
+  values (v_id, 'cancel', o.full_name);
 
   return query
     select p.id, p.status, p.cancelled_by, p.cancelled_at
