@@ -417,6 +417,126 @@ export async function appealViolation({ problemId, loginCode, appealText } = {})
   return Array.isArray(data) ? data[0] : data
 }
 
+// ---- Templated client notifications (plan → edit/attach → bot sends → log) -
+// Reads through kk_* views; writes through kk_* SECURITY DEFINER RPCs that
+// authenticate the login code and enforce chat ownership server-side (0035),
+// exactly like the violation bridge above.
+
+// The template catalog (client-facing wording + auto/manual + approved flag).
+export async function fetchNotificationTemplates() {
+  return unwrap(
+    await supabase
+      .from('kk_notification_templates')
+      .select('id, category, subtype, language, mode, title, body, requires_attachment, approved, active'),
+  )
+}
+
+// The planned 30-day chain (the upcoming messages the bot will send). Filter by
+// contract(s), status, and an upper bound on scheduled_date.
+export async function fetchPlannedNotifications(filters = {}) {
+  let query = supabase
+    .from('kk_planned_notifications')
+    .select('*')
+    .order('scheduled_date', { ascending: true })
+  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
+  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
+  if (filters.status) query = query.eq('status', filters.status)
+  if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
+  if (filters.scheduledBefore) query = query.lte('scheduled_date', filters.scheduledBefore)
+  return unwrap(await query)
+}
+
+// The manual-input attachments (files by month / mark-done) for MANUAL types.
+export async function fetchNotificationAttachments(filters = {}) {
+  let query = supabase.from('kk_notification_attachments').select('*')
+  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
+  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
+  return unwrap(await query)
+}
+
+// The sent-notifications log ("all notifications sent to this client").
+export async function fetchSentNotifications(filters = {}) {
+  let query = supabase
+    .from('kk_sent_notifications')
+    .select('*')
+    .order('sent_at', { ascending: false })
+  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
+  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
+  return unwrap(await query)
+}
+
+// Edit a planned message's text (audited server-side). Keeps it scheduled.
+export async function editPlannedNotification({ plannedId, loginCode, newText } = {}) {
+  if (plannedId == null) throw new Error('Не указано уведомление.')
+  const text = (newText || '').trim()
+  if (!text) throw new Error('Текст уведомления не может быть пустым.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_edit_notification', {
+    p_planned_id: String(plannedId),
+    p_login_code: code,
+    p_new_text: text,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+// Approve (lock) a planned message.
+export async function approvePlannedNotification({ plannedId, loginCode } = {}) {
+  if (plannedId == null) throw new Error('Не указано уведомление.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_approve_notification', {
+    p_planned_id: String(plannedId),
+    p_login_code: code,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+// Cancel a planned message so the bot will NOT send it.
+export async function cancelPlannedNotification({ plannedId, loginCode } = {}) {
+  if (plannedId == null) throw new Error('Не указано уведомление.')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_cancel_notification', {
+    p_planned_id: String(plannedId),
+    p_login_code: code,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
+// Attach the monthly document / mark done for a MANUAL notification type, with
+// optional accompanying text. Requires either a file URL or a mark-done flag.
+export async function attachNotification({
+  agrNo,
+  period,
+  category,
+  loginCode,
+  fileUrl = null,
+  fileName = null,
+  markedDone = false,
+  accompanyingText = null,
+} = {}) {
+  if (!agrNo || !period || !category) throw new Error('Не указаны договор/период/категория.')
+  if (!fileUrl && !markedDone) throw new Error('Приложите файл или отметьте «сделано».')
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc('kk_attach_notification', {
+    p_agr_no: agrNo,
+    p_period: period,
+    p_category: category,
+    p_login_code: code,
+    p_file_url: fileUrl,
+    p_file_name: fileName,
+    p_marked_done: markedDone,
+    p_accompanying_text: accompanyingText,
+  })
+  if (error) throw new Error(error.message)
+  return Array.isArray(data) ? data[0] : data
+}
+
 // ---- Detection-quality ratings (learning signal) --------------------------
 
 export async function fetchRatings(problemId) {

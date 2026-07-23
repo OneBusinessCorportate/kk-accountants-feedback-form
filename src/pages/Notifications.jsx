@@ -1,0 +1,383 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  fetchChats,
+  fetchPlannedNotifications,
+  fetchNotificationAttachments,
+  fetchSentNotifications,
+  editPlannedNotification,
+  approvePlannedNotification,
+  cancelPlannedNotification,
+  attachNotification,
+} from '../lib/api'
+import { useAuth } from '../lib/AuthContext'
+import { Loading, ErrorMessage, Empty } from '../components/States'
+import { formatDate } from '../lib/dashboard'
+import {
+  WILL_SEND_WARNING,
+  categoryLabel,
+  modeLabel,
+  statusLabel,
+  statusBadge,
+  isSendable,
+  needsAttachment,
+} from '../lib/notifications'
+
+const norm = (v) => (v ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' ')
+
+// A regular accountant sees only their own companies; supervisors see all.
+function ownsChat(chat, access) {
+  if (!access) return false
+  if (access.can_see_all) return true
+  const empId = access.employee_id
+  if (empId && chat.accountant_id && String(chat.accountant_id) === String(empId)) return true
+  const full = norm(access.full_name)
+  return !!full && (norm(chat.accountant_name) === full || norm(chat.accountant) === full)
+}
+
+// One planned-notification row with inline edit + actions.
+function PlannedRow({ row, attachment, canAct, onChanged }) {
+  const [editing, setEditing] = useState(false)
+  const [text, setText] = useState(row.rendered_text || '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const held = needsAttachment(row, attachment)
+  const willSend = isSendable(row.status)
+
+  const run = async (fn) => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await fn()
+      await onChanged()
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card" style={{ padding: '0.9rem', marginBottom: '0.6rem' }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <strong>{categoryLabel(row.category)}</strong>
+        <span className={`badge ${row.mode === 'auto' ? 'badge-blue' : 'badge-amber'}`}>
+          {modeLabel(row.mode)}
+        </span>
+        <span className={`badge ${statusBadge(row.status)}`}>{statusLabel(row.status)}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--muted)' }}>
+          Отправка: {formatDate(row.scheduled_date)}
+        </span>
+      </div>
+
+      {willSend && (
+        <div className="badge badge-amber" style={{ marginTop: 6, whiteSpace: 'normal', lineHeight: 1.4 }}>
+          ⚠️ {WILL_SEND_WARNING}
+        </div>
+      )}
+      {held && (
+        <div className="badge badge-red" style={{ marginTop: 6, whiteSpace: 'normal', lineHeight: 1.4 }}>
+          Нужен документ: приложите файл (или отметьте «сделано») — иначе бот не отправит это ручное уведомление.
+        </div>
+      )}
+
+      {editing ? (
+        <div style={{ marginTop: 8 }}>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={4}
+            style={{ width: '100%', fontFamily: 'inherit' }}
+          />
+        </div>
+      ) : (
+        <pre
+          style={{
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            fontFamily: 'inherit',
+            margin: '8px 0 0',
+            fontSize: '0.92rem',
+          }}
+        >
+          {row.rendered_text}
+        </pre>
+      )}
+      {row.accompanying_text && !editing && (
+        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+          Сопроводительный текст: {row.accompanying_text}
+        </div>
+      )}
+
+      {err && <div className="badge badge-red" style={{ marginTop: 6 }}>{err}</div>}
+
+      {canAct && row.status !== 'sent' && row.status !== 'cancelled' && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+          {editing ? (
+            <>
+              <button
+                className="btn btn-sm"
+                disabled={busy}
+                onClick={() =>
+                  run(() => editPlannedNotification({ plannedId: row.id, newText: text })).then(() =>
+                    setEditing(false),
+                  )
+                }
+              >
+                Сохранить
+              </button>
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={busy}
+                onClick={() => {
+                  setText(row.rendered_text || '')
+                  setEditing(false)
+                }}
+              >
+                Отмена
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setEditing(true)}>
+                Редактировать
+              </button>
+              {row.status !== 'approved' && (
+                <button
+                  className="btn btn-sm"
+                  disabled={busy}
+                  onClick={() => run(() => approvePlannedNotification({ plannedId: row.id }))}
+                >
+                  Подтвердить
+                </button>
+              )}
+              <button
+                className="btn btn-secondary btn-sm"
+                disabled={busy}
+                onClick={() => run(() => cancelPlannedNotification({ plannedId: row.id }))}
+              >
+                Отменить отправку
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {canAct && row.mode === 'manual' && row.status !== 'sent' && row.status !== 'cancelled' && (
+        <ManualAttach row={row} attachment={attachment} onChanged={onChanged} />
+      )}
+    </div>
+  )
+}
+
+// Manual-input section (pt.2): attach a file by month or mark done + optional text.
+function ManualAttach({ row, attachment, onChanged }) {
+  const [fileName, setFileName] = useState('')
+  const [fileUrl, setFileUrl] = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const submit = async (markedDone) => {
+    setBusy(true)
+    setErr(null)
+    try {
+      await attachNotification({
+        agrNo: row.agr_no,
+        period: row.period,
+        category: row.category,
+        fileUrl: fileUrl.trim() || null,
+        fileName: fileName.trim() || null,
+        markedDone,
+        accompanyingText: note.trim() || null,
+      })
+      setFileName('')
+      setFileUrl('')
+      setNote('')
+      await onChanged()
+    } catch (e) {
+      setErr(e.message || String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--border, #eee)', paddingTop: 8 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+        Ручной документ ({categoryLabel(row.category)}) за период {row.period}
+        {attachment?.file_url || attachment?.marked_done ? ' — приложено ✓' : ''}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <input
+          placeholder="Название файла"
+          value={fileName}
+          onChange={(e) => setFileName(e.target.value)}
+          style={{ flex: '1 1 160px' }}
+        />
+        <input
+          placeholder="Ссылка на файл (URL)"
+          value={fileUrl}
+          onChange={(e) => setFileUrl(e.target.value)}
+          style={{ flex: '1 1 200px' }}
+        />
+      </div>
+      <input
+        placeholder="Сопроводительный текст (необязательно)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        style={{ width: '100%', marginTop: 6 }}
+      />
+      {err && <div className="badge badge-red" style={{ marginTop: 6 }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+        <button className="btn btn-sm" disabled={busy || !fileUrl.trim()} onClick={() => submit(false)}>
+          Приложить файл
+        </button>
+        <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => submit(true)}>
+          Отметить «сделано»
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SentLog({ rows }) {
+  const [open, setOpen] = useState(false)
+  if (!rows?.length) return null
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button className="btn btn-secondary btn-sm" onClick={() => setOpen((v) => !v)}>
+        {open ? 'Скрыть' : 'Показать'} отправленные ({rows.length})
+      </button>
+      {open && (
+        <div style={{ marginTop: 6 }}>
+          {rows.map((s) => (
+            <div key={s.id} className="card" style={{ padding: '0.6rem', marginBottom: 6 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {formatDate(s.sent_date)} · {categoryLabel(s.category)} · {s.subtype}
+                {s.telegram_ok ? '' : ' · ошибка отправки'}
+              </div>
+              <pre style={{ whiteSpace: 'pre-wrap', margin: '4px 0 0', fontFamily: 'inherit', fontSize: '0.88rem' }}>
+                {s.full_text}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * «Уведомления» — the upcoming templated messages the bot will send to each of
+ * the accountant's clients (plan → edit/attach → bot sends → log). The
+ * accountant can edit the text, attach a monthly document / mark done, approve
+ * or cancel; if they do nothing the bot sends on schedule. A read-only log of
+ * everything already sent to each client is shown per company.
+ */
+export default function Notifications() {
+  const { access, canManage } = useAuth()
+  const [chats, setChats] = useState([])
+  const [planned, setPlanned] = useState([])
+  const [attachments, setAttachments] = useState([])
+  const [sent, setSent] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const load = useCallback(async () => {
+    const [c, p, a, s] = await Promise.all([
+      fetchChats().catch(() => []),
+      fetchPlannedNotifications().catch(() => []),
+      fetchNotificationAttachments().catch(() => []),
+      fetchSentNotifications().catch(() => []),
+    ])
+    setChats(c || [])
+    setPlanned(p || [])
+    setAttachments(a || [])
+    setSent(s || [])
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    load()
+      .catch((e) => alive && setError(e))
+      .finally(() => alive && setLoading(false))
+    return () => {
+      alive = false
+    }
+  }, [load])
+
+  const reload = useCallback(() => load(), [load])
+
+  // Companies the user may act on (own chats, or all for supervisors), that have
+  // at least one planned notification.
+  const companies = useMemo(() => {
+    const mine = (chats || []).filter((c) => ownsChat(c, access))
+    const chatBy = new Map(mine.map((c) => [c.agr_no, c]))
+    const attByKey = new Map(
+      (attachments || []).map((a) => [`${a.agr_no}|${a.period}|${a.category}`, a]),
+    )
+    const sentBy = new Map()
+    for (const s of sent || []) {
+      if (!sentBy.has(s.agr_no)) sentBy.set(s.agr_no, [])
+      sentBy.get(s.agr_no).push(s)
+    }
+    const byCompany = new Map()
+    for (const row of planned || []) {
+      if (!chatBy.has(row.agr_no)) continue // not one of my companies
+      if (!byCompany.has(row.agr_no)) byCompany.set(row.agr_no, [])
+      byCompany.get(row.agr_no).push(row)
+    }
+    return [...byCompany.entries()]
+      .sort(([a], [b]) => String(a).localeCompare(String(b)))
+      .map(([agrNo, rows]) => ({
+        agrNo,
+        chat: chatBy.get(agrNo),
+        rows: rows.slice().sort((x, y) => String(x.scheduled_date).localeCompare(String(y.scheduled_date))),
+        attByKey,
+        sent: sentBy.get(agrNo) || [],
+      }))
+  }, [chats, planned, attachments, sent, access])
+
+  if (loading) return <Loading />
+  if (error) return <ErrorMessage error={error} />
+
+  return (
+    <div>
+      <h1 className="page-title" style={{ margin: 0 }}>
+        Уведомления клиентам
+      </h1>
+      <p className="page-subtitle">
+        Предстоящие сообщения, которые бот отправит вашим клиентам по расписанию.
+        Отредактируйте текст, приложите документ или отмените отправку — если
+        ничего не менять, бот отправит запланированное сообщение сам.
+      </p>
+
+      {companies.length === 0 ? (
+        <Empty text="Запланированных уведомлений нет. План на 30 дней формируется автоматически ежедневно." />
+      ) : (
+        companies.map((co) => (
+          <div key={co.agrNo} style={{ marginBottom: '1.5rem' }}>
+            <h2 style={{ marginBottom: 4 }}>
+              {co.agrNo}
+              <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>
+                язык: {co.chat?.language || 'ru'}
+              </span>
+            </h2>
+            {co.rows.map((row) => (
+              <PlannedRow
+                key={row.id}
+                row={row}
+                attachment={co.attByKey.get(`${row.agr_no}|${row.period}|${row.category}`)}
+                canAct
+                onChanged={reload}
+              />
+            ))}
+            <SentLog rows={co.sent} />
+          </div>
+        ))
+      )}
+    </div>
+  )
+}

@@ -9,7 +9,9 @@ export const NAV_LINKS = [
   { to: '/tasks', label: 'Задачи', manageOnly: false },
   { to: '/clients', label: 'Клиенты', manageOnly: false },
   { to: '/accounting', label: 'Отчётность', manageOnly: false },
+  { to: '/notifications', label: 'Уведомления', manageOnly: false },
   { to: '/management', label: 'Управление', manageOnly: true },
+  { to: '/notifications-daily', label: 'Рассылки (день)', manageOnly: true },
   { to: '/reports', label: 'Отчёты', manageOnly: true },
 ]
 
