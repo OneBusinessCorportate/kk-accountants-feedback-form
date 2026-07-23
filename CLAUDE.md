@@ -464,23 +464,28 @@ GATED OFF (repo #1 sender is dry-run until a template is `approved` AND
 This app is the accountant/manager UI over that (same shared-DB bridge as the
 violation loop 0027):
 
-- **`0035_kk_notifications_bridge.sql`** — read-only definer views
-  `kk_planned_notifications` / `kk_notification_templates` /
-  `kk_notification_attachments` / `kk_sent_notifications`, and `kk_chat_directory`
-  extended with `language` + the resolved responsible accountant
-  (`accountant_id`/`accountant_name` via `kk_resolve_employee`) so notifications
-  scope to the accountant's own companies. Write RPCs (SECURITY DEFINER, login-code
-  auth, ownership via `kk_assert_chat_owner` — own client OR supervisor):
-  `kk_edit_notification` (edits are logged — no silent edits), `kk_approve_notification`,
-  `kk_cancel_notification`, `kk_attach_notification`. Guarded to fail loudly if the
-  repo #1 prerequisite migration is missing.
+- **`0035_kk_notifications_bridge.sql`** — the client-sensitive content (planned
+  30-day chain, manual attachments, sent-log) is NOT an anon-readable view (that
+  would let any anon key read every client's notifications). It is served through
+  **login-code SECURITY DEFINER read RPCs** `kk_list_planned_notifications` /
+  `kk_list_notification_attachments` / `kk_list_sent_notifications`, each
+  returning ONLY the caller's own companies (supervisors get all; ownership via
+  `kk_notification_scope` + `kk_owns_contract`). `kk_notification_templates`
+  (generic catalog, not client data) stays a view; `kk_chat_directory` gains only
+  `language` (the accountant→contract map is NOT exposed to anon). Write RPCs
+  (SECURITY DEFINER, login-code auth, ownership via `kk_assert_chat_owner` — own
+  client OR supervisor): `kk_edit_notification` (edits are logged — no silent
+  edits), `kk_approve_notification`, `kk_cancel_notification`,
+  `kk_attach_notification`. Guarded to fail loudly if the repo #1 prerequisite
+  migration is missing.
 - **`src/lib/notifications.js`** (pure, tested) — `WILL_SEND_WARNING`, status/mode/
   category labels + badges, `isSendable`/`willBeSent`/`needsAttachment`, and
   `groupByDay` for the manager overview.
-- **`src/lib/api.js`** — `fetchPlannedNotifications`/`fetchNotificationTemplates`/
-  `fetchNotificationAttachments`/`fetchSentNotifications` (reads) and
+- **`src/lib/api.js`** — `fetchPlannedNotifications`/`fetchNotificationAttachments`/
+  `fetchSentNotifications` call the scoped read RPCs (send `getStoredCode()`),
+  `fetchNotificationTemplates` reads the catalog view; writes
   `editPlannedNotification`/`approvePlannedNotification`/`cancelPlannedNotification`/
-  `attachNotification` (RPCs, send `getStoredCode()`).
+  `attachNotification` call the write RPCs.
 - **`src/pages/Notifications.jsx`** (`/notifications`, all users) — per-company
   upcoming chain with the explicit «это БУДЕТ отправлено» warning, edit/approve/
   cancel, the manual attach section for MANUAL types, and a read-only sent-log per

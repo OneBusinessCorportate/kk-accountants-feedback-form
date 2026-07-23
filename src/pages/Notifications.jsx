@@ -9,7 +9,6 @@ import {
   cancelPlannedNotification,
   attachNotification,
 } from '../lib/api'
-import { useAuth } from '../lib/AuthContext'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { formatDate } from '../lib/dashboard'
 import {
@@ -21,18 +20,6 @@ import {
   isSendable,
   needsAttachment,
 } from '../lib/notifications'
-
-const norm = (v) => (v ?? '').toString().trim().toLowerCase().replace(/\s+/g, ' ')
-
-// A regular accountant sees only their own companies; supervisors see all.
-function ownsChat(chat, access) {
-  if (!access) return false
-  if (access.can_see_all) return true
-  const empId = access.employee_id
-  if (empId && chat.accountant_id && String(chat.accountant_id) === String(empId)) return true
-  const full = norm(access.full_name)
-  return !!full && (norm(chat.accountant_name) === full || norm(chat.accountant) === full)
-}
 
 // One planned-notification row with inline edit + actions.
 function PlannedRow({ row, attachment, canAct, onChanged }) {
@@ -276,7 +263,6 @@ function SentLog({ rows }) {
  * everything already sent to each client is shown per company.
  */
 export default function Notifications() {
-  const { access, canManage } = useAuth()
   const [chats, setChats] = useState([])
   const [planned, setPlanned] = useState([])
   const [attachments, setAttachments] = useState([])
@@ -310,11 +296,11 @@ export default function Notifications() {
 
   const reload = useCallback(() => load(), [load])
 
-  // Companies the user may act on (own chats, or all for supervisors), that have
-  // at least one planned notification.
+  // The planned/attachment/sent reads are already scoped to the caller's own
+  // companies server-side (kk_list_* RPCs), so we simply group what came back —
+  // one section per company that has at least one planned notification.
   const companies = useMemo(() => {
-    const mine = (chats || []).filter((c) => ownsChat(c, access))
-    const chatBy = new Map(mine.map((c) => [c.agr_no, c]))
+    const chatBy = new Map((chats || []).map((c) => [c.agr_no, c]))
     const attByKey = new Map(
       (attachments || []).map((a) => [`${a.agr_no}|${a.period}|${a.category}`, a]),
     )
@@ -325,7 +311,6 @@ export default function Notifications() {
     }
     const byCompany = new Map()
     for (const row of planned || []) {
-      if (!chatBy.has(row.agr_no)) continue // not one of my companies
       if (!byCompany.has(row.agr_no)) byCompany.set(row.agr_no, [])
       byCompany.get(row.agr_no).push(row)
     }
@@ -338,7 +323,7 @@ export default function Notifications() {
         attByKey,
         sent: sentBy.get(agrNo) || [],
       }))
-  }, [chats, planned, attachments, sent, access])
+  }, [chats, planned, attachments, sent])
 
   if (loading) return <Loading />
   if (error) return <ErrorMessage error={error} />

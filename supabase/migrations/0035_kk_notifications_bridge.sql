@@ -49,17 +49,11 @@ select
   c.agr_no,
   c.chat_link,
   c.status,
-  coalesce(c.language, 'ru')    as language,
-  c.accountant                  as accountant,       -- raw name from mqa_chats
-  e.id                          as accountant_id,    -- resolved employee uuid (may be null)
-  e.full_name                   as accountant_name   -- canonical full name (may be null)
-from public.mqa_chats c
-left join lateral (
-  select id, full_name from public.kk_resolve_employee(c.accountant) limit 1
-) e on true;
+  coalesce(c.language, 'ru') as language
+from public.mqa_chats c;
 
 comment on view public.kk_chat_directory is
-  'Read-only projection of mqa_chats (agr_no, chat_link, status, language) plus the resolved responsible accountant (accountant_id/name via kk_resolve_employee) so the accountant app can scope client notifications to their own companies. language drives template rendering (0035).';
+  'Read-only projection of mqa_chats (agr_no, chat_link, status, language). language drives client-notification template rendering (0035). Deliberately does NOT expose the accountant→contract map to anon — per-accountant scoping of notifications happens server-side in the kk_list_* RPCs below.';
 
 grant select on public.kk_chat_directory to anon, authenticated;
 
@@ -75,44 +69,14 @@ comment on view public.kk_notification_templates is
 
 grant select on public.kk_notification_templates to anon, authenticated;
 
--- The planned 30-day chain — the upcoming messages the bot will send.
-create or replace view public.kk_planned_notifications as
-select
-  p.id, p.agr_no, p.period, p.category, p.subtype, p.language,
-  p.scheduled_date, p.template_id, p.mode, p.requires_attachment,
-  p.rendered_text, p.accompanying_text, p.status,
-  p.edited_by, p.edited_at, p.approved_by, p.approved_at,
-  p.cancelled_by, p.cancelled_at, p.sent_at
-from public.mqa_planned_notifications p;
-
-comment on view public.kk_planned_notifications is
-  'Read-only projection of mqa_planned_notifications (pt.3): the queued upcoming client notifications, their rendered text and status. planned/edited/approved will be sent; cancelled/sent/skipped will not.';
-
-grant select on public.kk_planned_notifications to anon, authenticated;
-
--- Manual-input attachments (files by month / mark-done) for MANUAL types.
-create or replace view public.kk_notification_attachments as
-select
-  a.agr_no, a.period, a.category, a.file_name, a.file_url,
-  a.marked_done, a.uploaded_by, a.created_at, a.updated_at
-from public.mqa_notification_attachments a;
-
-comment on view public.kk_notification_attachments is
-  'Read-only projection of mqa_notification_attachments (pt.2): the monthly file / mark-done for MANUAL notification types.';
-
-grant select on public.kk_notification_attachments to anon, authenticated;
-
--- The sent-notifications log (read-only "all notifications sent to this client").
-create or replace view public.kk_sent_notifications as
-select
-  s.id, s.sent_at, s.sent_date, s.agr_no, s.category, s.subtype,
-  s.language, s.full_text, s.template_id, s.planned_id, s.telegram_ok
-from public.mqa_sent_notifications s;
-
-comment on view public.kk_sent_notifications is
-  'Read-only projection of mqa_sent_notifications (pt.6): every message the bot actually sent — date, full text, type, subtype, contract number.';
-
-grant select on public.kk_sent_notifications to anon, authenticated;
+-- NOTE (security): the client-specific content — the planned 30-day chain, the
+-- manual attachments, and the sent-notifications log — is CLIENT-SENSITIVE
+-- (full message text, files, delivery history). It is therefore NOT exposed as
+-- an anon-readable view: any anon key holder would then read every client's
+-- notifications. Instead it is served through the login-code SECURITY DEFINER
+-- read RPCs below (kk_list_*), which return only the caller's OWN companies
+-- (supervisors get all) — the same ownership model as the write RPCs. The base
+-- mqa_* tables keep RLS with no anon policy.
 
 -- 2. Ownership helper -------------------------------------------------------
 -- Resolve the login code to an employee and confirm they own the chat (the
@@ -197,6 +161,128 @@ end;
 $$;
 
 revoke all on function public.kk_assert_planned_owner(bigint, text) from public;
+
+-- Scope resolver for the read RPCs: the caller's employee id + whether they are
+-- a supervisor (management sees everything, an accountant only their own).
+create or replace function public.kk_notification_scope(
+  p_login_code    text,
+  out employee_id  uuid,
+  out is_supervisor boolean
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_role        text;
+  v_can_see_all boolean;
+begin
+  select r.employee_id, r.role, r.can_see_all
+    into employee_id, v_role, v_can_see_all
+  from public.resolve_login_code(p_login_code) r
+  limit 1;
+  if employee_id is null then
+    raise exception 'Неизвестный код входа. Войдите заново.' using errcode = '28000';
+  end if;
+  is_supervisor := coalesce(v_can_see_all, false)
+    or lower(coalesce(v_role, '')) in ('head_accountant', 'ceo', 'founder', 'qa', 'admin');
+end;
+$$;
+
+revoke all on function public.kk_notification_scope(text) from public;
+
+-- Does a contract belong to the scoped caller? (own chat, or supervisor)
+-- Kept as a SQL expression inside each RPC via this helper for readability.
+create or replace function public.kk_owns_contract(p_agr_no text, p_employee_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.mqa_chats c
+    join lateral public.kk_resolve_employee(c.accountant) e on true
+    where c.agr_no = p_agr_no and e.id = p_employee_id
+  );
+$$;
+
+revoke all on function public.kk_owns_contract(text, uuid) from public;
+
+-- 2b. Scoped read RPCs (client-sensitive content) ---------------------------
+-- These replace the anon-readable views: each returns ONLY the caller's own
+-- companies (all for supervisors), authenticated by the login code.
+
+create or replace function public.kk_list_planned_notifications(p_login_code text)
+returns table(
+  id bigint, agr_no text, period text, category text, subtype text, language text,
+  scheduled_date date, template_id text, mode text, requires_attachment boolean,
+  rendered_text text, accompanying_text text, status text,
+  edited_by text, edited_at timestamptz, approved_by text, approved_at timestamptz,
+  cancelled_by text, cancelled_at timestamptz, sent_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare s record;
+begin
+  select * into s from public.kk_notification_scope(p_login_code);
+  return query
+    select p.id, p.agr_no, p.period, p.category, p.subtype, p.language,
+           p.scheduled_date, p.template_id, p.mode, p.requires_attachment,
+           p.rendered_text, p.accompanying_text, p.status,
+           p.edited_by, p.edited_at, p.approved_by, p.approved_at,
+           p.cancelled_by, p.cancelled_at, p.sent_at
+    from public.mqa_planned_notifications p
+    where s.is_supervisor or public.kk_owns_contract(p.agr_no, s.employee_id)
+    order by p.scheduled_date asc;
+end;
+$$;
+
+create or replace function public.kk_list_notification_attachments(p_login_code text)
+returns table(
+  agr_no text, period text, category text, file_name text, file_url text,
+  marked_done boolean, uploaded_by text, created_at timestamptz, updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare s record;
+begin
+  select * into s from public.kk_notification_scope(p_login_code);
+  return query
+    select a.agr_no, a.period, a.category, a.file_name, a.file_url,
+           a.marked_done, a.uploaded_by, a.created_at, a.updated_at
+    from public.mqa_notification_attachments a
+    where s.is_supervisor or public.kk_owns_contract(a.agr_no, s.employee_id);
+end;
+$$;
+
+create or replace function public.kk_list_sent_notifications(p_login_code text)
+returns table(
+  id bigint, sent_at timestamptz, sent_date date, agr_no text, category text,
+  subtype text, language text, full_text text, template_id text, planned_id bigint,
+  telegram_ok boolean
+)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare s record;
+begin
+  select * into s from public.kk_notification_scope(p_login_code);
+  return query
+    select s2.id, s2.sent_at, s2.sent_date, s2.agr_no, s2.category,
+           s2.subtype, s2.language, s2.full_text, s2.template_id, s2.planned_id,
+           s2.telegram_ok
+    from public.mqa_sent_notifications s2
+    where s.is_supervisor or public.kk_owns_contract(s2.agr_no, s.employee_id)
+    order by s2.sent_at desc;
+end;
+$$;
 
 -- 3. Edit the planned text (audited) ----------------------------------------
 -- Last-minute edit allowed, but ALWAYS logged (who/what/when) — no silent edits
@@ -383,6 +469,9 @@ $$;
 
 -- The anon/authenticated roles may CALL the RPCs (they enforce their own auth
 -- via the login code) but have NO direct DML on the mqa_* tables.
+grant execute on function public.kk_list_planned_notifications(text)                  to anon, authenticated;
+grant execute on function public.kk_list_notification_attachments(text)               to anon, authenticated;
+grant execute on function public.kk_list_sent_notifications(text)                     to anon, authenticated;
 grant execute on function public.kk_edit_notification(text, text, text)               to anon, authenticated;
 grant execute on function public.kk_approve_notification(text, text)                   to anon, authenticated;
 grant execute on function public.kk_cancel_notification(text, text)                    to anon, authenticated;

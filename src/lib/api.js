@@ -431,38 +431,58 @@ export async function fetchNotificationTemplates() {
   )
 }
 
-// The planned 30-day chain (the upcoming messages the bot will send). Filter by
-// contract(s), status, and an upper bound on scheduled_date.
+// Small helper: call a scoped read RPC with the caller's login code and apply
+// any remaining client-side filters. These reads are CLIENT-SENSITIVE (full
+// message text / files / delivery log), so the server RPC returns only the
+// caller's own companies (all for supervisors) — never an anon-wide view.
+async function callScopedRpc(fn, loginCode) {
+  const code = loginCode || getStoredCode()
+  if (!code) throw new Error('Требуется вход по коду.')
+  const { data, error } = await supabase.rpc(fn, { p_login_code: code })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+// The planned 30-day chain (the upcoming messages the bot will send), scoped to
+// the caller's own companies. Optional client-side filters narrow the result.
 export async function fetchPlannedNotifications(filters = {}) {
-  let query = supabase
-    .from('kk_planned_notifications')
-    .select('*')
-    .order('scheduled_date', { ascending: true })
-  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
-  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
-  if (filters.status) query = query.eq('status', filters.status)
-  if (filters.statusIn?.length) query = query.in('status', filters.statusIn)
-  if (filters.scheduledBefore) query = query.lte('scheduled_date', filters.scheduledBefore)
-  return unwrap(await query)
+  let rows = await callScopedRpc('kk_list_planned_notifications', filters.loginCode)
+  if (filters.agrNo) rows = rows.filter((r) => r.agr_no === filters.agrNo)
+  if (filters.agrNoIn?.length) {
+    const set = new Set(filters.agrNoIn)
+    rows = rows.filter((r) => set.has(r.agr_no))
+  }
+  if (filters.status) rows = rows.filter((r) => r.status === filters.status)
+  if (filters.statusIn?.length) {
+    const set = new Set(filters.statusIn)
+    rows = rows.filter((r) => set.has(r.status))
+  }
+  if (filters.scheduledBefore) rows = rows.filter((r) => r.scheduled_date <= filters.scheduledBefore)
+  return rows
 }
 
-// The manual-input attachments (files by month / mark-done) for MANUAL types.
+// The manual-input attachments (files by month / mark-done) for MANUAL types,
+// scoped to the caller's own companies.
 export async function fetchNotificationAttachments(filters = {}) {
-  let query = supabase.from('kk_notification_attachments').select('*')
-  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
-  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
-  return unwrap(await query)
+  let rows = await callScopedRpc('kk_list_notification_attachments', filters.loginCode)
+  if (filters.agrNo) rows = rows.filter((r) => r.agr_no === filters.agrNo)
+  if (filters.agrNoIn?.length) {
+    const set = new Set(filters.agrNoIn)
+    rows = rows.filter((r) => set.has(r.agr_no))
+  }
+  return rows
 }
 
-// The sent-notifications log ("all notifications sent to this client").
+// The sent-notifications log ("all notifications sent to this client"), scoped
+// to the caller's own companies.
 export async function fetchSentNotifications(filters = {}) {
-  let query = supabase
-    .from('kk_sent_notifications')
-    .select('*')
-    .order('sent_at', { ascending: false })
-  if (filters.agrNo) query = query.eq('agr_no', filters.agrNo)
-  if (filters.agrNoIn?.length) query = query.in('agr_no', filters.agrNoIn)
-  return unwrap(await query)
+  let rows = await callScopedRpc('kk_list_sent_notifications', filters.loginCode)
+  if (filters.agrNo) rows = rows.filter((r) => r.agr_no === filters.agrNo)
+  if (filters.agrNoIn?.length) {
+    const set = new Set(filters.agrNoIn)
+    rows = rows.filter((r) => set.has(r.agr_no))
+  }
+  return rows
 }
 
 // Edit a planned message's text (audited server-side). Keeps it scheduled.

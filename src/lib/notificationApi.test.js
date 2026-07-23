@@ -54,15 +54,28 @@ beforeEach(() => {
   rpcResult = { data: [{ id: 1, status: 'edited' }], error: null }
 })
 
-describe('reads', () => {
-  it('fetchPlannedNotifications reads the kk_planned_notifications view', async () => {
+describe('reads (scoped RPCs, not anon views)', () => {
+  it('fetchPlannedNotifications calls the scoped RPC with the login code and filters client-side', async () => {
+    rpcResult = {
+      data: [
+        { id: 1, agr_no: 'B-1', status: 'planned' },
+        { id: 2, agr_no: 'B-2', status: 'planned' },
+      ],
+      error: null,
+    }
     const rows = await fetchPlannedNotifications({ agrNo: 'B-1' })
-    expect(fromCalls).toContain('kk_planned_notifications')
+    expect(rpcCalls[0].fn).toBe('kk_list_planned_notifications')
+    expect(rpcCalls[0].args).toEqual({ p_login_code: 'MYCODE123' })
+    // never reads an anon-wide view
+    expect(fromCalls).not.toContain('kk_planned_notifications')
+    expect(rows).toHaveLength(1)
     expect(rows[0].agr_no).toBe('B-1')
   })
-  it('fetchSentNotifications reads the kk_sent_notifications view', async () => {
+  it('fetchSentNotifications calls the scoped sent-log RPC', async () => {
+    rpcResult = { data: [{ id: 9, agr_no: 'B-1' }], error: null }
     await fetchSentNotifications({ agrNo: 'B-1' })
-    expect(fromCalls).toContain('kk_sent_notifications')
+    expect(rpcCalls[0].fn).toBe('kk_list_sent_notifications')
+    expect(fromCalls).not.toContain('kk_sent_notifications')
   })
 })
 
