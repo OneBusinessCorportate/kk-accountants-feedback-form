@@ -57,9 +57,15 @@ alternative userbot is a documented fallback, not built.
 ## Modes
 
 `--mode plan` materialises the chain (service role, dedup-aware, never clobbers
-edited/sent). `preview` read-only. `demo-today` = 5 random active companies,
-mixed languages/types, logged `is_test=true`, never written to `mqa_chat_mailings`.
-`send` plans then sends due (both rules; dedup re-checked at send).
+edited/sent) — run nightly. `preview` read-only. `demo-today` = 5 random active
+companies, mixed languages/types, logged `is_test=true`, never written to
+`mqa_chat_mailings`. `send` is send-only and polls every 30 min in Yerevan
+business hours so a message goes out within ~30 min of its scheduled time (both
+rules; dedup re-checked at send).
+
+Manual attach semantics (req 2): a file attached → the bot delivers it and the
+send fails if the file can't be delivered; **marked done without a file** →
+the bot sends the text only (the accountant's explicit "handled" choice).
 
 ## Dedup
 

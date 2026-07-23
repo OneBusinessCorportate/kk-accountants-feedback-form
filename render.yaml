@@ -36,12 +36,15 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
 
-  # Runs today's due mailings each morning (Yerevan): plans, then sends what's
-  # due. Dry-run until unlocked; every send is forced to the test chat.
+  # Sends any DUE mailings. Polls every 30 min during Yerevan business hours
+  # (04:00–16:30 UTC ≈ 08:00–20:30 Yerevan) so a message goes out within ~30 min
+  # of its scheduled time — not the next morning. Send-only (the chain is
+  # materialised by the planner cron). Dry-run until unlocked; every send is
+  # forced to the test chat.
   - type: cron
     name: kk-mailing-bot-sender
     runtime: node
-    schedule: "0 5 * * *" # 09:00 Asia/Yerevan (UTC+4)
+    schedule: "*/30 4-16 * * *" # every 30 min, 08:00–20:30 Asia/Yerevan (UTC+4)
     buildCommand: npm ci
     startCommand: node scripts/mailing_bot.mjs --mode send
     envVars:

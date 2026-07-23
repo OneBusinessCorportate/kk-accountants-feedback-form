@@ -345,19 +345,24 @@ async function runSendDue() {
   for (const m of due) {
     let docUrl = null
     let docName = null
+    let docRequired = false
     const kind = manualKind[m.category]
     if (kind) {
       const path = assetPath.get(`${normContract(m.agr_no)}|${m.period}|${kind}`)
       if (path) {
+        // A file WAS attached → it must be delivered (fail if we can't).
+        docRequired = true
         const { data: signed } = await sb.storage.from('kk-attachments').createSignedUrl(path, 900)
         docUrl = signed?.signedUrl || null
         docName = path.split('/').pop()
       }
+      // No path but the mailing is due → the accountant marked it done WITHOUT a
+      // file (owner's "mark done" option, req 2): send the text only.
     }
     const r = await deliver({
       agrNo: m.agr_no, clientName: m.client_name, category: m.category,
       subtype: m.subtype, language: m.language, text: m.composed_text, isTest: false,
-      docUrl, docName, docRequired: !!kind,
+      docUrl, docName, docRequired,
     })
     // Only advance the REAL mailing state when it was genuinely delivered to the
     // client — a forced test-chat send must NOT mark the real row sent (fix #2).
@@ -378,7 +383,9 @@ async function main() {
   } else if (MODE === 'plan') {
     await runPlan()
   } else if (MODE === 'send') {
-    await runPlan() // materialise the chain first, then send what's due
+    // Send-only: the chain is materialised by the nightly `plan` cron. The
+    // sender polls frequently (see render.yaml) so a message goes out within
+    // the poll interval of its scheduled Yerevan time — not the next morning.
     await runSendDue()
   } else {
     // preview — read-only: show what's already due, never writes, never sends
