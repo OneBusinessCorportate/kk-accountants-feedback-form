@@ -14,16 +14,26 @@ import {
   TEMPLATE_LIST,
   MAILING_CATEGORIES,
   CATEGORY_DEFAULT_DAY,
-  LANG_TEXT_KEY,
   templateKey,
-  getTemplate,
   manualAssetForCategory,
+  // language + composition live in the shared template module (bot ↔ cabinet)
+  normalizeLanguage,
+  composeMailing,
+  monthName,
+  periodLabel,
+  fillTemplate,
+  formatAmount,
 } from './templates'
 // Schedule/period math lives in the shared module so the cabinet and the bot
 // agree on Yerevan-anchored send times (see scripts/lib/schedule.mjs).
 import { expandSchedule, currentPeriod } from '../../scripts/lib/schedule.mjs'
 
-export { normalizeContract, normalizeChatLink, expandSchedule, currentPeriod }
+// Re-export the shared pieces so existing importers/tests of './notifications'
+// keep working unchanged.
+export {
+  normalizeContract, normalizeChatLink, expandSchedule, currentPeriod,
+  normalizeLanguage, composeMailing, monthName, periodLabel, fillTemplate, formatAmount,
+}
 
 // ---- Language resolution (req 4) -------------------------------------------
 //
@@ -31,13 +41,6 @@ export { normalizeContract, normalizeChatLink, expandSchedule, currentPeriod }
 //   1. an explicit stored code (client_telegram_chats.language / kk_company_settings)
 //   2. the AM/RU/EN(G) suffix embedded in the chat name (mqa_chats.chat_name)
 //   3. default RU (never guess a person, never send in an unknown language blind)
-const LANG_CANON = { RU: 'RU', RUS: 'RU', AM: 'AM', HY: 'AM', ARM: 'AM', EN: 'ENG', ENG: 'ENG' }
-
-export function normalizeLanguage(value) {
-  if (value == null) return null
-  const key = value.toString().trim().toUpperCase()
-  return LANG_CANON[key] || null
-}
 
 // Pull the language token from a chat name. Names look like
 // "B-4701 <…> ИП RU" / "… ՍՊԸ AM" / "… ENG". We look for a standalone token.
@@ -82,63 +85,10 @@ export function toBotApiChatId(rawId) {
   return `-100${s}`
 }
 
-// ---- Template rendering -----------------------------------------------------
-
-const MONTHS = {
-  RU: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
-  AM: ['հունվար', 'փետրվար', 'մարտ', 'ապրիլ', 'մայիս', 'հունիս', 'հուլիս', 'օգոստոս', 'սեպտեմբեր', 'հոկտեմբեր', 'նոյեմբեր', 'դեկտեմբեր'],
-  ENG: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'],
-}
-
-// period is 'YYYYMM' (mqa convention). Returns a human month name for the lang.
-export function monthName(period, language = 'RU') {
-  const s = (period || '').toString()
-  const mm = Number.parseInt(s.slice(4, 6), 10)
-  if (!mm || mm < 1 || mm > 12) return ''
-  return (MONTHS[language] || MONTHS.RU)[mm - 1]
-}
-
-// currentPeriod is re-exported from scripts/lib/schedule.mjs (Yerevan cutoff).
-
-// period 'YYYYMM' → 'MM/YYYY' for the реквизиты line.
-export function periodLabel(period) {
-  const s = (period || '').toString()
-  if (s.length < 6) return s
-  return `${s.slice(4, 6)}/${s.slice(0, 4)}`
-}
-
-// Replace {{key}} tokens. Missing keys collapse to '' so a template never leaks
-// a raw placeholder to a client.
-export function fillTemplate(text, values = {}) {
-  if (text == null) return ''
-  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) =>
-    values[k] == null ? '' : String(values[k]),
-  )
-}
-
-// Build the message body for one planned mailing. `ctx` carries the resolved,
-// per-client data (period, amount, due day, month). Returns null for an unknown
-// template. This is the auto-composed starting point; an accountant may still
-// edit it via the audited button before it goes out.
-export function composeMailing({ category, subtype, language, ctx = {} } = {}) {
-  const tpl = getTemplate(category, subtype)
-  if (!tpl) return null
-  const lang = normalizeLanguage(language) || 'RU'
-  const body = tpl.text[LANG_TEXT_KEY[lang]] || tpl.text.ru
-  const period = ctx.period || ''
-  return fillTemplate(body, {
-    month: ctx.month || monthName(period, lang),
-    period: ctx.periodLabel || periodLabel(period),
-    amount: ctx.amount != null && ctx.amount !== '' ? formatAmount(ctx.amount) : '__________',
-    due_day: ctx.dueDay || CATEGORY_DEFAULT_DAY[category] || '',
-  })
-}
-
-export function formatAmount(value) {
-  const n = Number(value)
-  if (!Number.isFinite(n)) return String(value)
-  return `${n.toLocaleString('ru-RU')} AMD`
-}
+// Template rendering (monthName / periodLabel / fillTemplate / composeMailing /
+// formatAmount) is imported from the shared template module and re-exported
+// above — one implementation for cabinet and bot. currentPeriod likewise comes
+// from scripts/lib/schedule.mjs (Yerevan cutoff).
 
 // ---- Auto-send warning (req 3) ---------------------------------------------
 // Shown EVERYWHERE a planned message appears, so it's clear it goes out

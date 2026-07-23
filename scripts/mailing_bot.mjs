@@ -15,6 +15,9 @@ import { createClient } from '@supabase/supabase-js'
 import { FORCED_TEST_CHAT, resolveTarget, canDeliver } from './lib/mailingSafety.mjs'
 // Yerevan-anchored schedule math shared with the cabinet (src/lib/notifications.js)
 import { occurrenceOnOrAfter, currentPeriod as period } from './lib/schedule.mjs'
+// Templates + composition — the SAME module the cabinet uses, so the bot renders
+// exactly the previewed text and covers every declared template (no drift).
+import { TEMPLATE_LIST, composeMailing } from './lib/templates.mjs'
 
 // ---- HARD SAFETY CONSTANTS --------------------------------------------------
 const FORCE_TEST_CHAT_ONLY = true // rule 2 — never send to a real client chat
@@ -32,46 +35,6 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABAS
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || ''
 
 const sb = SUPABASE_URL && SERVICE_KEY ? createClient(SUPABASE_URL, SERVICE_KEY) : null
-
-// ---- Minimal template mirror (canonical source: src/lib/templates.js) ------
-// Kept compact for the standalone bot; must stay in sync with templates.js.
-const T = {
-  primary_docs_request: {
-    RU: (m) => `Уважаемые коллеги!\nДля своевременного составления отчётности просим предоставить информацию за ${m} (счета/инвойсы, импорт-экспорт, банковские выписки, данные по зарплате, ВНЖ/Work Permit). Заранее благодарим!`,
-    AM: (m) => `Հարգելի գործընկերներ։\nՀաշվետվության ժամանակին կազմման համար խնդրում ենք տրամադրել ${m} ամսվա տեղեկատվությունը (հաշիվներ, ներմուծում/արտահանում, բանկային քաղվածքներ, աշխատավարձ, ВНЖ/Work Permit)։ Կանխավ շնորհակալություն։`,
-    ENG: (m) => `Dear colleagues,\nFor the timely preparation of reports, please provide the information for ${m} (invoices, import/export docs, bank statements, payroll data, TRC/Work Permit). Thank you in advance!`,
-  },
-  debts_service_payment: {
-    RU: (m, p) => `ДЛЯ СДАЧИ ОТЧЁТНОСТИ И НАЛОГОВОЙ ОПТИМИЗАЦИИ\nОплатите бухгалтерские услуги до 5 числа (за ${p}). Реквизиты: р/с 1930097970708600 (AMD), Converse Bank, Business Tech LLC, ИНН 02909907, назначение: payment for accountant service.\nПосле оплаты продолжаем работу в полном объёме. Спасибо!`,
-    AM: (m, p) => `ՀԱՇՎԵՏՎՈՒԹՅԱՆ ԵՎ ՀԱՐԿԱՅԻՆ ՕՊՏԻՄԱԼԱՑՄԱՆ ՀԱՄԱՐ\nԿատարեք վճարումը մինչև ամսի 5-ը (${p})։ Հ/հ 1930097970708600 (AMD), Converse Bank, Business Tech LLC, ՀՎՀՀ 02909907։\nՎճարումից հետո շարունակում ենք աշխատանքը։ Շնորհակալություն։`,
-    ENG: (m, p) => `FOR REPORT SUBMISSION AND TAX OPTIMIZATION\nPlease pay for accounting services by the 5th (for ${p}). Details: acct 1930097970708600 (AMD), Converse Bank, Business Tech LLC, TIN 02909907, purpose: payment for accountant service.\nAfter payment we continue in full. Thank you!`,
-  },
-  salary_table: {
-    RU: () => `Добрый день!\nНаправляю таблицу по заработным платам, также сообщаю, что оплаты проставлены в банке.`,
-    AM: () => `Բարի օր։\nՈւղարկում եմ աշխատավարձերի աղյուսակը, ինչպես նաև տեղեկացնում եմ, որ վճարումները նշվել են բանկում։`,
-    ENG: () => `Good day,\nI am sending the salary table and confirm the payments have been entered in the bank system.`,
-  },
-  main_taxes_report: {
-    RU: () => `Добрый день!\nОтчёт подготовлен и сдан. Следующим сообщением направляю PDF отчёта и расчёт налогов. Налоги выставлены в банке, прошу подтвердить оплаты.`,
-    AM: () => `Բարի օր։\nՀաշվետվությունը պատրաստ է և ներկայացված։ Հաջորդ հաղորդագրությամբ կուղարկեմ PDF-ը և հարկերի հաշվարկը։ Խնդրում եմ հաստատել վճարումները։`,
-    ENG: () => `Good day,\nThe report has been prepared and submitted. Next I will send the PDF and the tax calculation. Taxes are in the bank; please approve the payments.`,
-  },
-}
-const DEMO_ORDER = ['primary_docs_request', 'debts_service_payment', 'salary_table', 'main_taxes_report']
-const CAT_OF = {
-  primary_docs_request: ['primary_docs', 'request'],
-  debts_service_payment: ['debts', 'service_payment'],
-  salary_table: ['salary', 'table'],
-  main_taxes_report: ['main_taxes', 'report'],
-}
-const MONTHS = {
-  RU: ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'],
-  AM: ['հունվար','փետրվար','մարտ','ապրիլ','մայիս','հունիս','հուլիս','օգոստոս','սեպտեմբեր','հոկտեմբեր','նոյեմբեր','դեկտեմբեր'],
-  ENG: ['January','February','March','April','May','June','July','August','September','October','November','December'],
-}
-function monthName(p, lang) {
-  return (MONTHS[lang] || MONTHS.RU)[Number(p.slice(4, 6)) - 1]
-}
 
 function argFlag(name) {
   const i = process.argv.indexOf(name)
@@ -235,9 +198,8 @@ async function runPlan() {
     let occ = occurrenceOnOrAfter(now, s.day_of_month, s.send_hour ?? 11, s.send_minute ?? 0)
     while (occ <= horizon) {
       const p = period(occ)
-      const key = `${s.category}_${s.subtype}`
-      const render = T[key]?.[language] || T[key]?.RU
-      if (render) {
+      const text = composeMailing({ category: s.category, subtype: s.subtype, language, ctx: { period: p } })
+      if (text) {
         let status = 'planned'
         if (isCoveredKey(covered, s.agr_no, p, s.category)) status = 'covered'
         else if (manualKind[s.category] && !assetReady(s.agr_no, p, manualKind[s.category])) status = 'awaiting_file'
@@ -245,7 +207,7 @@ async function runPlan() {
           agr_no: s.agr_no, client_name: c.client_name || c.chat_name, chat_name: c.chat_name,
           category: s.category, subtype: s.subtype, period: p, language,
           scheduled_at: occ.toISOString(),
-          composed_text: render(monthName(p, language), `${p.slice(4, 6)}/${p.slice(0, 4)}`),
+          composed_text: text,
           accountant_id: null, status, is_test: false,
         })
       }
@@ -297,18 +259,17 @@ async function runDemoToday() {
   const picks = []
   const usedType = new Set()
   const usedLang = new Set()
-  const periodLbl = `${p.slice(4, 6)}/${p.slice(0, 4)}`
   for (const c of ordered) {
     if (picks.length >= DEMO_COUNT) break
     const language = langOf(c)
-    // rotate template type to vary the mailing types
-    let key = DEMO_ORDER[picks.length % DEMO_ORDER.length]
-    for (const k of DEMO_ORDER) if (!usedType.has(k)) { key = k; break }
-    const [category, subtype] = CAT_OF[key]
-    const render = T[key][language] || T[key].RU
-    const text = render(monthName(p, language), periodLbl)
-    picks.push({ agrNo: c.agr_no, clientName: c.client_name || c.chat_name, category, subtype, period: p, language, text, isTest: true })
-    usedType.add(key); usedLang.add(language)
+    // rotate through the declared templates so mailing types differ
+    let tpl = TEMPLATE_LIST[picks.length % TEMPLATE_LIST.length]
+    for (const t of TEMPLATE_LIST) {
+      if (!usedType.has(`${t.category}:${t.subtype}`)) { tpl = t; break }
+    }
+    const text = composeMailing({ category: tpl.category, subtype: tpl.subtype, language, ctx: { period: p } })
+    picks.push({ agrNo: c.agr_no, clientName: c.client_name || c.chat_name, category: tpl.category, subtype: tpl.subtype, period: p, language, text, isTest: true })
+    usedType.add(`${tpl.category}:${tpl.subtype}`); usedLang.add(language)
   }
   console.log(`\n=== ДЕМО (только сегодня, только тестовый чат ${TEST_CHAT_ID}) ===`)
   console.log(`Период ${p}. Компаний: ${picks.length}. Языки: ${[...usedLang].join(', ')}.`)
@@ -333,16 +294,22 @@ async function runSendDue() {
   )
   // Re-check dedup at send time: a manual send may have landed after planning.
   const covered = await loadCoveredKeys()
-  // Idempotency guard (prevents ANY repeat, incl. forced-test polling every 30
-  // min): a mailing already recorded in the sent-log for this
-  // (agr_no, period, category) — real OR test send — is never sent again. This
-  // is the authoritative "already processed" marker (kk_planned_mailings.status
-  // is only a secondary signal a forced-test send intentionally does not set).
+  // Idempotency guard (prevents repeats, incl. forced-test polling every 30 min)
+  // WITHOUT letting a test send consume the real one:
+  //   • a REAL send (is_test=false) blocks the mailing forever (already sent);
+  //   • a TEST send (is_test=true) blocks only further sends WHILE the test
+  //     override is on — once real sending is enabled, the mailing still goes
+  //     out to the client exactly once.
   const sentLog = await selectAll((c) =>
-    c.from('kk_sent_notifications').select('agr_no, period, category'),
+    c.from('kk_sent_notifications').select('agr_no, period, category, is_test'),
   )
-  const sentKeys = new Set(sentLog.map((s) => `${normContract(s.agr_no)}|${s.period}|${s.category}`))
-  const isSent = (m) => sentKeys.has(`${normContract(m.agr_no)}|${m.period}|${m.category}`)
+  const key = (agrNo, p, cat) => `${normContract(agrNo)}|${p}|${cat}`
+  const realSent = new Set(sentLog.filter((s) => !s.is_test).map((s) => key(s.agr_no, s.period, s.category)))
+  const testSent = new Set(sentLog.filter((s) => s.is_test).map((s) => key(s.agr_no, s.period, s.category)))
+  const isSent = (m) => {
+    const k = key(m.agr_no, m.period, m.category)
+    return realSent.has(k) || (FORCE_TEST_CHAT_ONLY && testSent.has(k))
+  }
   const due = data.filter((m) => !isCoveredKey(covered, m.agr_no, m.period, m.category) && !isSent(m))
   const skipped = data.length - due.length
   // Manual-add categories must ALSO deliver the attached file (salary sheet /
