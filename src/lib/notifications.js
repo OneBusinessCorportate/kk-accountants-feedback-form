@@ -63,9 +63,23 @@ export function isSendable(status) {
   return status === 'planned' || status === 'edited' || status === 'approved'
 }
 
-// Will THIS planned row actually go out? (sendable and not yet sent/cancelled)
+// Will THIS planned row actually go out? (status allows it) — status only.
 export function willBeSent(row) {
   return !!row && isSendable(row.status)
+}
+
+// Will the bot ACTUALLY send this row on schedule? A manual row still missing
+// its required attachment is held back by the sender, so it is NOT "will be
+// sent" even though its status is sendable. This mirrors the sender's
+// sendDecision() gate so the UI never claims a held item will go out.
+export function willActuallySend(row, attachment) {
+  return !!row && isSendable(row.status) && !needsAttachment(row, attachment)
+}
+
+// Build the attachment-lookup key used to pair a planned row with its
+// (contract, period, category) attachment row.
+export function attachmentKey(row) {
+  return `${row.agr_no}|${row.period}|${row.category}`
 }
 
 // A manual row that still needs a file/mark before the bot will send it. Used to
@@ -98,8 +112,9 @@ export function groupByDay(planned = []) {
     }))
 }
 
-// Count of notifications that will actually go out on a given day (for the
-// overview header / warnings).
-export function sendableCount(rows = []) {
-  return rows.filter((r) => isSendable(r.status)).length
+// Count of notifications that will ACTUALLY go out on a given day — a manual row
+// still missing its attachment is excluded (it would be held by the sender). If
+// no attachment map is supplied, manual rows requiring one are treated as held.
+export function sendableCount(rows = [], attByKey = new Map()) {
+  return rows.filter((r) => willActuallySend(r, attByKey.get(attachmentKey(r)))).length
 }

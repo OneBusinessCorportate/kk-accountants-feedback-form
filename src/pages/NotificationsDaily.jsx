@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { fetchPlannedNotifications, cancelPlannedNotification } from '../lib/api'
+import {
+  fetchPlannedNotifications,
+  fetchNotificationAttachments,
+  cancelPlannedNotification,
+} from '../lib/api'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { formatDate } from '../lib/dashboard'
 import {
@@ -8,7 +12,8 @@ import {
   categoryLabel,
   statusLabel,
   statusBadge,
-  isSendable,
+  attachmentKey,
+  willActuallySend,
 } from '../lib/notifications'
 
 /**
@@ -19,11 +24,18 @@ import {
  */
 export default function NotificationsDaily() {
   const [planned, setPlanned] = useState([])
+  const [attachments, setAttachments] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const load = useCallback(
-    () => fetchPlannedNotifications().then((rows) => setPlanned(rows || [])),
+    () =>
+      Promise.all([fetchPlannedNotifications(), fetchNotificationAttachments()]).then(
+        ([p, a]) => {
+          setPlanned(p || [])
+          setAttachments(a || [])
+        },
+      ),
     [],
   )
 
@@ -39,6 +51,10 @@ export default function NotificationsDaily() {
   }, [load])
 
   const days = useMemo(() => groupByDay(planned), [planned])
+  const attByKey = useMemo(
+    () => new Map((attachments || []).map((a) => [`${a.agr_no}|${a.period}|${a.category}`, a])),
+    [attachments],
+  )
 
   const cancel = async (id) => {
     try {
@@ -72,7 +88,7 @@ export default function NotificationsDaily() {
             <h2 style={{ marginBottom: 6 }}>
               {formatDate(day.date)}
               <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>
-                будет отправлено: {sendableCount(day.rows)} из {day.rows.length}
+                будет отправлено: {sendableCount(day.rows, attByKey)} из {day.rows.length}
               </span>
             </h2>
             <div className="table-wrap">
@@ -93,10 +109,17 @@ export default function NotificationsDaily() {
                       <td>{categoryLabel(r.category)}</td>
                       <td>
                         <span className={`badge ${statusBadge(r.status)}`}>{statusLabel(r.status)}</span>
+                        {r.status !== 'sent' &&
+                          r.status !== 'cancelled' &&
+                          !willActuallySend(r, attByKey.get(attachmentKey(r))) && (
+                            <span className="badge badge-amber" style={{ marginLeft: 6 }}>
+                              нужен документ
+                            </span>
+                          )}
                       </td>
                       <td style={{ maxWidth: 420, whiteSpace: 'pre-wrap' }}>{r.rendered_text}</td>
                       <td>
-                        {isSendable(r.status) && (
+                        {r.status !== 'sent' && r.status !== 'cancelled' && (
                           <button className="btn btn-secondary btn-sm" onClick={() => cancel(r.id)}>
                             Отменить
                           </button>

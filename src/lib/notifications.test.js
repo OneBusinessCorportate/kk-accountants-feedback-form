@@ -6,6 +6,7 @@ import {
   statusLabel,
   isSendable,
   willBeSent,
+  willActuallySend,
   needsAttachment,
   groupByDay,
   sendableCount,
@@ -73,15 +74,35 @@ describe('groupByDay (manager daily overview)', () => {
   })
 })
 
+describe('willActuallySend (manual rows need their attachment)', () => {
+  const manual = { status: 'planned', mode: 'manual', requires_attachment: true, agr_no: 'B-1', period: '202607', category: 'salary' }
+  const auto = { status: 'planned', mode: 'auto', requires_attachment: false }
+  it('a manual row WITHOUT its attachment will NOT be sent, even if status is sendable', () => {
+    expect(isSendable(manual.status)).toBe(true) // status alone says sendable...
+    expect(willActuallySend(manual, undefined)).toBe(false) // ...but it is held
+    expect(willActuallySend(manual, { marked_done: false })).toBe(false)
+  })
+  it('a manual row WITH a file / mark-done will be sent', () => {
+    expect(willActuallySend(manual, { file_url: 'v.pdf' })).toBe(true)
+    expect(willActuallySend(manual, { marked_done: true })).toBe(true)
+  })
+  it('an auto row is sent purely on status', () => {
+    expect(willActuallySend(auto, undefined)).toBe(true)
+    expect(willActuallySend({ ...auto, status: 'cancelled' }, undefined)).toBe(false)
+  })
+})
+
 describe('sendableCount', () => {
-  it('counts only rows that will actually go out', () => {
-    expect(
-      sendableCount([
-        { status: 'planned' },
-        { status: 'edited' },
-        { status: 'cancelled' },
-        { status: 'sent' },
-      ]),
-    ).toBe(2)
+  it('excludes manual rows still missing their attachment', () => {
+    const rows = [
+      { status: 'planned', mode: 'auto', requires_attachment: false, agr_no: 'B-1', period: '202607', category: 'debts' },
+      { status: 'planned', mode: 'manual', requires_attachment: true, agr_no: 'B-1', period: '202607', category: 'salary' },
+      { status: 'cancelled', mode: 'auto', requires_attachment: false, agr_no: 'B-2', period: '202607', category: 'debts' },
+    ]
+    // no attachments known → the manual salary row is held, only the auto row counts
+    expect(sendableCount(rows)).toBe(1)
+    // with the salary attachment present → both sendable rows count
+    const att = new Map([['B-1|202607|salary', { file_url: 'v.pdf' }]])
+    expect(sendableCount(rows, att)).toBe(2)
   })
 })

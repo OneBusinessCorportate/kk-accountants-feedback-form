@@ -17,8 +17,8 @@ import {
   modeLabel,
   statusLabel,
   statusBadge,
-  isSendable,
   needsAttachment,
+  willActuallySend,
 } from '../lib/notifications'
 
 // One planned-notification row with inline edit + actions.
@@ -29,7 +29,9 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
   const [err, setErr] = useState(null)
 
   const held = needsAttachment(row, attachment)
-  const willSend = isSendable(row.status)
+  // Only warn "WILL be sent" when the bot will truly send it — a manual row
+  // still missing its document is held, not going out.
+  const willSend = willActuallySend(row, attachment)
 
   // Returns true on success, false on failure — callers use it so the editor is
   // closed only when the save actually succeeded.
