@@ -440,6 +440,60 @@ now cross-references every task/comment against it and posts a daily rollup.
   `app.edge_base_url` / `app.edge_auth` are set, and needs `TELEGRAM_BOT_TOKEN` /
   `TELEGRAM_CHAT_ID` too. Runs "dry" (returns the message) without the bot secrets.
 
+## Templated client notifications — plan → edit/attach → bot sends → log (0035)
+
+Owner decision (2026-07): flip the mailings flow. Instead of accountants sending
+client mailings by hand and the platform only DETECTING them afterwards
+(`mqa_chat_mailings`), the QA platform now **PLANS** the upcoming notifications
+per company for the next 30 days, the accountant **SEES/EDITS/ATTACHES** them
+here, and a **BOT SENDS** on schedule — every send **LOGGED** with full text.
+Templated client messages go out only via the bot, never hand-typed. If the
+accountant does nothing, the bot sends the planned message as-is.
+
+The source-of-truth tables live in repo #1 (margarita-qa-platform migration
+`20260723_mqa_notifications_v1.sql`): `mqa_notification_templates` (client
+wording per category/subtype/language + `mode` auto/manual + `approved`),
+`mqa_planned_notifications` (the 30-day chain + `mqa_notification_edits` audit),
+`mqa_notification_attachments` (monthly file / mark-done for MANUAL types),
+`mqa_sent_notifications` (the log), and `mqa_chats.language`. AUTO = bot sends
+fixed wording (debts/primary_docs, from Naira); MANUAL = accountant must attach a
+file / mark done first (salary ведомость, tax report). Live client sending is
+GATED OFF (repo #1 sender is dry-run until a template is `approved` AND
+`NOTIFICATIONS_SEND_ENABLED=1`).
+
+This app is the accountant/manager UI over that (same shared-DB bridge as the
+violation loop 0027):
+
+- **`0035_kk_notifications_bridge.sql`** — the client-sensitive content (planned
+  30-day chain, manual attachments, sent-log) is NOT an anon-readable view (that
+  would let any anon key read every client's notifications). It is served through
+  **login-code SECURITY DEFINER read RPCs** `kk_list_planned_notifications` /
+  `kk_list_notification_attachments` / `kk_list_sent_notifications`, each
+  returning ONLY the caller's own companies (supervisors get all; ownership via
+  `kk_notification_scope` + `kk_owns_contract`). `kk_notification_templates`
+  (generic catalog, not client data) stays a view; `kk_chat_directory` gains only
+  `language` (the accountant→contract map is NOT exposed to anon). Write RPCs
+  (SECURITY DEFINER, login-code auth, ownership via `kk_assert_chat_owner` — own
+  client OR supervisor): `kk_edit_notification` (edits are logged — no silent
+  edits), `kk_approve_notification`, `kk_cancel_notification`,
+  `kk_attach_notification`. Guarded to fail loudly if the repo #1 prerequisite
+  migration is missing.
+- **`src/lib/notifications.js`** (pure, tested) — `WILL_SEND_WARNING`, status/mode/
+  category labels + badges, `isSendable`/`willBeSent`/`needsAttachment`, and
+  `groupByDay` for the manager overview.
+- **`src/lib/api.js`** — `fetchPlannedNotifications`/`fetchNotificationAttachments`/
+  `fetchSentNotifications` call the scoped read RPCs (send `getStoredCode()`),
+  `fetchNotificationTemplates` reads the catalog view; writes
+  `editPlannedNotification`/`approvePlannedNotification`/`cancelPlannedNotification`/
+  `attachNotification` call the write RPCs.
+- **`src/pages/Notifications.jsx`** (`/notifications`, all users) — per-company
+  upcoming chain with the explicit «это БУДЕТ отправлено» warning, edit/approve/
+  cancel, the manual attach section for MANUAL types, and a read-only sent-log per
+  client. **`src/pages/NotificationsDaily.jsx`** (`/notifications-daily`,
+  management-only) — all notifications grouped by send day (pt.5) with cancel.
+- Language auto-detect (chat-name change → alert) is BACKLOG (`mqa_backlog_notes`
+  in repo #1), not built.
+
 ## Commands
 
 - `npm run dev` — local dev server

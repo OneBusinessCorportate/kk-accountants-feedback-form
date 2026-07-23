@@ -17,6 +17,8 @@ import Reports from './pages/Reports.jsx'
 import Tasks from './pages/Tasks.jsx'
 import Clients from './pages/Clients.jsx'
 import Accounting from './pages/Accounting.jsx'
+import Notifications from './pages/Notifications.jsx'
+import NotificationsDaily from './pages/NotificationsDaily.jsx'
 import MandatoryReview from './pages/MandatoryReview.jsx'
 
 export default function App() {
@@ -160,9 +162,14 @@ export default function App() {
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/clients" element={<Clients />} />
             <Route path="/accounting" element={<Accounting />} />
+            <Route path="/notifications" element={<Notifications />} />
             <Route
               path="/management"
               element={manage ? <Management /> : <Navigate to="/" replace />}
+            />
+            <Route
+              path="/notifications-daily"
+              element={manage ? <NotificationsDaily /> : <Navigate to="/" replace />}
             />
             <Route path="/reports" element={manage ? <Reports /> : <Navigate to="/" replace />} />
             {/* Legacy routes now merged into /management (Проверка + Апелляции +
