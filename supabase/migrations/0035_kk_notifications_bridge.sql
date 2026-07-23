@@ -451,7 +451,11 @@ create or replace function public.kk_attach_notification(
   p_marked_done       boolean default false,
   p_accompanying_text text default null
 )
-returns table(agr_no text, period text, category text, file_url text, marked_done boolean)
+-- NOTE: the OUT columns are prefixed out_* so they do NOT collide with the
+-- mqa_notification_attachments column names — otherwise the unqualified
+-- ON CONFLICT (agr_no, period, category) target below would resolve to the
+-- PL/pgSQL OUT variables and the UPSERT would fail.
+returns table(out_agr_no text, out_period text, out_category text, out_file_url text, out_marked_done boolean)
 language plpgsql
 security definer
 set search_path = public, pg_temp
