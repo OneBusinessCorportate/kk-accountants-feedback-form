@@ -194,7 +194,9 @@ function ManualAttach({ row, attachment, onChanged }) {
         fileUrl: fileUrl.trim() || null,
         fileName: fileName.trim() || null,
         markedDone,
-        accompanyingText: note.trim() || null,
+        // Once approved, the outgoing text is locked — never send accompanying
+        // text (the server ignores it for approved rows anyway).
+        accompanyingText: row.status === 'approved' ? null : note.trim() || null,
       })
       setFileName('')
       setFileUrl('')
@@ -227,12 +229,19 @@ function ManualAttach({ row, attachment, onChanged }) {
           style={{ flex: '1 1 200px' }}
         />
       </div>
-      <input
-        placeholder="Сопроводительный текст (необязательно)"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        style={{ width: '100%', marginTop: 6 }}
-      />
+      {row.status === 'approved' ? (
+        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+          🔒 Текст подтверждён — приложите документ или отметьте «сделано»
+          (сопроводительный текст изменить нельзя).
+        </div>
+      ) : (
+        <input
+          placeholder="Сопроводительный текст (необязательно)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          style={{ width: '100%', marginTop: 6 }}
+        />
+      )}
       {err && <div className="badge badge-red" style={{ marginTop: 6 }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
         <button className="btn btn-sm" disabled={busy || !fileUrl.trim()} onClick={() => submit(false)}>

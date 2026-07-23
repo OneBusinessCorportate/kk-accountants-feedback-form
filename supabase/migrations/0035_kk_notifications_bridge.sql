@@ -489,12 +489,16 @@ begin
   where p.agr_no = p_agr_no and p.period = p_period and p.category = p_category
     and p.status in ('planned', 'edited', 'approved');
 
+  -- accompanying_text is part of the OUTGOING message, so 'approve' locks it too
+  -- (only 'planned'/'edited' may change it). Attaching a file / marking done is
+  -- not "wording" and stays allowed for an approved manual row so it can still
+  -- be sent. This keeps the approve = text-locked promise unbypassable.
   if p_accompanying_text is not null then
     update public.mqa_planned_notifications p
        set accompanying_text = btrim(p_accompanying_text),
            updated_at = now()
      where p.agr_no = p_agr_no and p.period = p_period and p.category = p_category
-       and p.status in ('planned', 'edited', 'approved');
+       and p.status in ('planned', 'edited');
   end if;
 
   return query
