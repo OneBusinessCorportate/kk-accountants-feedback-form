@@ -326,17 +326,22 @@ export default function Notifications() {
       if (!sentBy.has(s.agr_no)) sentBy.set(s.agr_no, [])
       sentBy.get(s.agr_no).push(s)
     }
-    const byCompany = new Map()
+    const plannedByCompany = new Map()
     for (const row of planned || []) {
-      if (!byCompany.has(row.agr_no)) byCompany.set(row.agr_no, [])
-      byCompany.get(row.agr_no).push(row)
+      if (!plannedByCompany.has(row.agr_no)) plannedByCompany.set(row.agr_no, [])
+      plannedByCompany.get(row.agr_no).push(row)
     }
-    return [...byCompany.entries()]
-      .sort(([a], [b]) => String(a).localeCompare(String(b)))
-      .map(([agrNo, rows]) => ({
+    // A company appears if it has upcoming planned messages OR any sent history
+    // (so a client with only past sends still shows its read-only sent-log).
+    const agrNos = new Set([...plannedByCompany.keys(), ...sentBy.keys()])
+    return [...agrNos]
+      .sort((a, b) => String(a).localeCompare(String(b)))
+      .map((agrNo) => ({
         agrNo,
         chat: chatBy.get(agrNo),
-        rows: rows.slice().sort((x, y) => String(x.scheduled_date).localeCompare(String(y.scheduled_date))),
+        rows: (plannedByCompany.get(agrNo) || [])
+          .slice()
+          .sort((x, y) => String(x.scheduled_date).localeCompare(String(y.scheduled_date))),
         attByKey,
         sent: sentBy.get(agrNo) || [],
       }))
