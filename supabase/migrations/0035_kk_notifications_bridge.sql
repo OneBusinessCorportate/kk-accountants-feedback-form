@@ -236,7 +236,13 @@ begin
            p.edited_by, p.edited_at, p.approved_by, p.approved_at,
            p.cancelled_by, p.cancelled_at, p.sent_at
     from public.mqa_planned_notifications p
-    where s.is_supervisor or public.kk_owns_contract(p.agr_no, s.employee_id)
+    where (s.is_supervisor or public.kk_owns_contract(p.agr_no, s.employee_id))
+      -- UPCOMING view only: active (non-terminal) rows in the forward 30-day
+      -- window. Completed/cancelled/skipped and stale-past rows are history and
+      -- belong to the sent-log RPC, not the "предстоящие рассылки" screens.
+      and p.status in ('planned', 'edited', 'approved')
+      and p.scheduled_date >= (current_date - interval '2 days')
+      and p.scheduled_date <= (current_date + interval '35 days')
     order by p.scheduled_date asc;
 end;
 $$;
