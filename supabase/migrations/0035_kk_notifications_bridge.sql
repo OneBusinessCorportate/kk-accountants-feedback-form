@@ -316,8 +316,8 @@ begin
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
   if o.status = 'approved' then
     raise exception 'Уведомление подтверждено (текст заблокирован). Отмените подтверждение или отправку, чтобы изменить.' using errcode = '22023';
-  elsif o.status in ('sent', 'cancelled') then
-    raise exception 'Это уведомление уже отправлено или отменено — правка недоступна.' using errcode = '22023';
+  elsif o.status in ('sent', 'cancelled', 'skipped') then
+    raise exception 'Уведомление завершено (отправлено/отменено/пропущено) — правка недоступна.' using errcode = '22023';
   end if;
 
   select p.rendered_text into v_old from public.mqa_planned_notifications p where p.id = v_id;
@@ -362,8 +362,8 @@ declare
   v_hit bigint;
 begin
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
-  if o.status in ('sent', 'cancelled') then
-    raise exception 'Это уведомление уже отправлено или отменено.' using errcode = '22023';
+  if o.status in ('sent', 'cancelled', 'skipped') then
+    raise exception 'Уведомление завершено (отправлено/отменено/пропущено) — подтверждение недоступно.' using errcode = '22023';
   end if;
 
   -- Atomic, status-guarded write; audit only after a real change (race-safe:
@@ -406,23 +406,25 @@ declare
   v_hit bigint;
 begin
   select * into o from public.kk_assert_planned_owner(v_id, p_login_code);
-  if o.status = 'sent' then
-    raise exception 'Это уведомление уже отправлено — отмена недоступна.' using errcode = '22023';
+  if o.status in ('sent', 'cancelled', 'skipped') then
+    raise exception 'Уведомление завершено (отправлено/отменено/пропущено) — отмена недоступна.' using errcode = '22023';
   end if;
 
   -- Atomic, status-guarded write; audit only after a real change (race-safe:
-  -- the bot flipping the row to 'sent' meanwhile leaves 0 rows updated).
+  -- the bot flipping the row to a terminal status meanwhile leaves 0 rows).
+  -- Only an ACTIVE row (planned/edited/approved) can be cancelled — a terminal
+  -- row (sent/cancelled/skipped) is never mutated even if called directly.
   update public.mqa_planned_notifications p
      set status       = 'cancelled',
          cancelled_by = o.full_name,
          cancelled_at = now(),
          updated_at   = now()
    where p.id = v_id
-     and p.status <> 'sent'
+     and p.status in ('planned', 'edited', 'approved')
   returning p.id into v_hit;
 
   if v_hit is null then
-    raise exception 'Это уведомление уже отправлено — отмена не применена.' using errcode = '22023';
+    raise exception 'Уведомление завершено — отмена не применена.' using errcode = '22023';
   end if;
 
   insert into public.mqa_notification_edits (planned_id, action, editor)
@@ -474,6 +476,9 @@ begin
         uploaded_by = excluded.uploaded_by,
         updated_at  = now();
 
+  -- Audit only against an ACTIVE planned row — never a terminal one
+  -- (sent/cancelled/skipped), so a direct RPC call cannot annotate a finished
+  -- notification.
   insert into public.mqa_notification_edits (planned_id, action, editor, note)
   select p.id,
          case when coalesce(p_marked_done, false) and coalesce(p_file_url,'') = ''
@@ -481,14 +486,15 @@ begin
          o.full_name,
          coalesce(p_file_name, p_file_url)
   from public.mqa_planned_notifications p
-  where p.agr_no = p_agr_no and p.period = p_period and p.category = p_category;
+  where p.agr_no = p_agr_no and p.period = p_period and p.category = p_category
+    and p.status in ('planned', 'edited', 'approved');
 
   if p_accompanying_text is not null then
     update public.mqa_planned_notifications p
        set accompanying_text = btrim(p_accompanying_text),
            updated_at = now()
      where p.agr_no = p_agr_no and p.period = p_period and p.category = p_category
-       and p.status not in ('sent', 'cancelled');
+       and p.status in ('planned', 'edited', 'approved');
   end if;
 
   return query
