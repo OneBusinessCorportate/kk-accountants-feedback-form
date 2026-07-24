@@ -31,15 +31,15 @@ describe('labels', () => {
 })
 
 describe('isSendable / willBeSent', () => {
-  it('planned/edited/approved send; cancelled/sent/skipped do not', () => {
+  it('planned/edited send; sent/skipped/cancelled do not (no approve step)', () => {
     expect(isSendable('planned')).toBe(true)
     expect(isSendable('edited')).toBe(true)
-    expect(isSendable('approved')).toBe(true)
+    expect(isSendable('approved')).toBe(false) // approve was removed (0036)
     expect(isSendable('cancelled')).toBe(false)
     expect(isSendable('sent')).toBe(false)
     expect(isSendable('skipped')).toBe(false)
     expect(willBeSent({ status: 'planned' })).toBe(true)
-    expect(willBeSent({ status: 'cancelled' })).toBe(false)
+    expect(willBeSent({ status: 'sent' })).toBe(false)
     expect(willBeSent(null)).toBe(false)
   })
 })

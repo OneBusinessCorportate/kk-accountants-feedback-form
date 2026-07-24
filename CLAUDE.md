@@ -494,6 +494,15 @@ violation loop 0027):
 - Language auto-detect (chat-name change → alert) is BACKLOG (`mqa_backlog_notes`
   in repo #1), not built.
 
+**No-cancel / edit-anytime (0036, owner decision).** The bot ALWAYS sends the
+planned message at its scheduled time — accountants can NOT cancel a send, and
+there is no approve/lock step. The only pre-send action is EDIT: the message text
+can be changed at any time until the bot sends it. Migration 0036 drops
+`kk_cancel_notification` + `kk_approve_notification`; `kk_edit_notification` edits
+while the row is `planned`/`edited` (locked once `sent`); the upcoming list is
+active rows only. `Notifications.jsx` shows a single «Редактировать текст» action;
+`NotificationsDaily.jsx` is now a read-only daily overview (no cancel).
+
 ## Commands
 
 - `npm run dev` — local dev server
