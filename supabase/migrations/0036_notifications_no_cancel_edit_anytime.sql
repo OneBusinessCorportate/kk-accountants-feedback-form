@@ -30,6 +30,15 @@ end $$;
 drop function if exists public.kk_cancel_notification(text, text);
 drop function if exists public.kk_approve_notification(text, text);
 
+-- Migrate away the now-defunct 'approved' state: any notification that was
+-- approved under 0035 but NOT yet sent becomes 'edited', so it stays visible in
+-- the upcoming list and remains editable right up until the bot sends it (the
+-- new promise). Without this, such rows would be hidden + uneditable yet still
+-- get sent. (approved_by/at are left as historical breadcrumbs.)
+update public.mqa_planned_notifications
+   set status = 'edited', updated_at = now()
+ where status = 'approved';
+
 -- 2. Edit is allowed any time before the bot sends the message ------------
 -- Editable while the row is still 'planned' or 'edited'; a 'sent' (or otherwise
 -- terminal) row is locked. Atomic status-guarded UPDATE (race-safe against the
