@@ -501,31 +501,9 @@ export async function editPlannedNotification({ plannedId, loginCode, newText } 
   return Array.isArray(data) ? data[0] : data
 }
 
-// Approve (lock) a planned message.
-export async function approvePlannedNotification({ plannedId, loginCode } = {}) {
-  if (plannedId == null) throw new Error('Не указано уведомление.')
-  const code = loginCode || getStoredCode()
-  if (!code) throw new Error('Требуется вход по коду.')
-  const { data, error } = await supabase.rpc('kk_approve_notification', {
-    p_planned_id: String(plannedId),
-    p_login_code: code,
-  })
-  if (error) throw new Error(error.message)
-  return Array.isArray(data) ? data[0] : data
-}
-
-// Cancel a planned message so the bot will NOT send it.
-export async function cancelPlannedNotification({ plannedId, loginCode } = {}) {
-  if (plannedId == null) throw new Error('Не указано уведомление.')
-  const code = loginCode || getStoredCode()
-  if (!code) throw new Error('Требуется вход по коду.')
-  const { data, error } = await supabase.rpc('kk_cancel_notification', {
-    p_planned_id: String(plannedId),
-    p_login_code: code,
-  })
-  if (error) throw new Error(error.message)
-  return Array.isArray(data) ? data[0] : data
-}
+// NOTE: approve/cancel were removed (0036). The bot always sends the planned
+// message at its scheduled time — it cannot be cancelled and there is no lock
+// step; the accountant may only EDIT the text (any time before it is sent).
 
 // Attach the monthly document / mark done for a MANUAL notification type, with
 // optional accompanying text. Requires either a file URL or a mark-done flag.

@@ -7,8 +7,8 @@
 // The exact wording flip: the platform PLANS the messages, the accountant may
 // edit/attach, and if they do nothing the bot sends on schedule.
 export const WILL_SEND_WARNING =
-  'Это сообщение БУДЕТ отправлено клиенту ботом автоматически по расписанию. ' +
-  'Отредактируйте, приложите документ или отмените — иначе оно уйдёт как есть.'
+  'Это сообщение БУДЕТ отправлено клиенту ботом автоматически в назначенное время. ' +
+  'Отменить отправку нельзя — но вы можете отредактировать текст в любой момент до отправки.'
 
 // Category labels (reuse the mailing taxonomy wording used across the platform).
 export const NOTIFICATION_CATEGORY_LABELS = {
@@ -58,9 +58,10 @@ export function statusLabel(status) {
   return NOTIFICATION_STATUS_LABELS[status] ?? status ?? '—'
 }
 
-// planned/edited/approved rows will still be sent by the bot; the rest will not.
+// planned/edited rows will still be sent by the bot; the rest will not. (There
+// is no 'approved' step anymore — the bot always sends; see 0036.)
 export function isSendable(status) {
-  return status === 'planned' || status === 'edited' || status === 'approved'
+  return status === 'planned' || status === 'edited'
 }
 
 // Terminal statuses: the row is done and no longer actionable — the bot will not

@@ -5,8 +5,6 @@ import {
   fetchNotificationAttachments,
   fetchSentNotifications,
   editPlannedNotification,
-  approvePlannedNotification,
-  cancelPlannedNotification,
   attachNotification,
 } from '../lib/api'
 import { Loading, ErrorMessage, Empty } from '../components/States'
@@ -133,37 +131,12 @@ function PlannedRow({ row, attachment, canAct, onChanged }) {
                 Отмена
               </button>
             </>
-          ) : row.status === 'approved' ? (
-            <>
-              <span className="badge badge-green">🔒 Текст подтверждён (заблокирован)</span>
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={busy}
-                onClick={() => run(() => cancelPlannedNotification({ plannedId: row.id }))}
-              >
-                Отменить отправку
-              </button>
-            </>
           ) : (
-            <>
-              <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setEditing(true)}>
-                Редактировать
-              </button>
-              <button
-                className="btn btn-sm"
-                disabled={busy}
-                onClick={() => run(() => approvePlannedNotification({ plannedId: row.id }))}
-              >
-                Подтвердить
-              </button>
-              <button
-                className="btn btn-secondary btn-sm"
-                disabled={busy}
-                onClick={() => run(() => cancelPlannedNotification({ plannedId: row.id }))}
-              >
-                Отменить отправку
-              </button>
-            </>
+            // The bot always sends this at its scheduled time — the only action
+            // is editing the text (allowed any time before it is sent).
+            <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setEditing(true)}>
+              Редактировать текст
+            </button>
           )}
         </div>
       )}
@@ -194,9 +167,7 @@ function ManualAttach({ row, attachment, onChanged }) {
         fileUrl: fileUrl.trim() || null,
         fileName: fileName.trim() || null,
         markedDone,
-        // Once approved, the outgoing text is locked — never send accompanying
-        // text (the server ignores it for approved rows anyway).
-        accompanyingText: row.status === 'approved' ? null : note.trim() || null,
+        accompanyingText: note.trim() || null,
       })
       setFileName('')
       setFileUrl('')
@@ -229,19 +200,12 @@ function ManualAttach({ row, attachment, onChanged }) {
           style={{ flex: '1 1 200px' }}
         />
       </div>
-      {row.status === 'approved' ? (
-        <div style={{ marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
-          🔒 Текст подтверждён — приложите документ или отметьте «сделано»
-          (сопроводительный текст изменить нельзя).
-        </div>
-      ) : (
-        <input
-          placeholder="Сопроводительный текст (необязательно)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          style={{ width: '100%', marginTop: 6 }}
-        />
-      )}
+      <input
+        placeholder="Сопроводительный текст (необязательно)"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        style={{ width: '100%', marginTop: 6 }}
+      />
       {err && <div className="badge badge-red" style={{ marginTop: 6 }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
         <button className="btn btn-sm" disabled={busy || !fileUrl.trim()} onClick={() => submit(false)}>

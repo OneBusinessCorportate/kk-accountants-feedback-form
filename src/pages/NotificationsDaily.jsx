@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  fetchPlannedNotifications,
-  fetchNotificationAttachments,
-  cancelPlannedNotification,
-} from '../lib/api'
+import { fetchPlannedNotifications, fetchNotificationAttachments } from '../lib/api'
 import { Loading, ErrorMessage, Empty } from '../components/States'
 import { formatDate } from '../lib/dashboard'
 import {
@@ -18,10 +14,11 @@ import {
 } from '../lib/notifications'
 
 /**
- * «Рассылки (по дням)» — management daily overview (pt.5). Groups ALL planned
- * client notifications by the day they will be sent, so supervisors can review
- * everything going out on a given day and intervene (cancel) before the bot
- * sends. Management-only route.
+ * «Рассылки (по дням)» — management daily overview (pt.5). Read-only: groups the
+ * upcoming client notifications by the day the bot will send them, so
+ * supervisors can review what is going out. Sending cannot be cancelled — the
+ * bot always sends at the scheduled time; the accountant can only edit the text
+ * beforehand (on the «Уведомления» page). Management-only route.
  */
 export default function NotificationsDaily() {
   const [planned, setPlanned] = useState([])
@@ -57,16 +54,6 @@ export default function NotificationsDaily() {
     [attachments],
   )
 
-  const cancel = async (id) => {
-    try {
-      await cancelPlannedNotification({ plannedId: id })
-      await load()
-    } catch (e) {
-      // eslint-disable-next-line no-alert
-      alert(e.message || String(e))
-    }
-  }
-
   if (loading) return <Loading />
   if (error) return <ErrorMessage error={error} />
 
@@ -76,9 +63,9 @@ export default function NotificationsDaily() {
         Рассылки по дням
       </h1>
       <p className="page-subtitle">
-        Все запланированные уведомления клиентам, сгруппированные по дню отправки.
-        Здесь можно проверить, что уйдёт сегодня, и вмешаться (отменить) до
-        отправки ботом.
+        Предстоящие уведомления клиентам, сгруппированные по дню отправки. Здесь
+        можно заранее проверить, что уйдёт сегодня. Отменить отправку нельзя —
+        бот отправляет по расписанию; текст правится на странице «Уведомления».
       </p>
 
       {days.length === 0 ? (
@@ -100,7 +87,6 @@ export default function NotificationsDaily() {
                     <th>Категория</th>
                     <th>Статус</th>
                     <th>Текст</th>
-                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -118,13 +104,6 @@ export default function NotificationsDaily() {
                           )}
                       </td>
                       <td style={{ maxWidth: 420, whiteSpace: 'pre-wrap' }}>{r.rendered_text}</td>
-                      <td>
-                        {!isTerminal(r.status) && (
-                          <button className="btn btn-secondary btn-sm" onClick={() => cancel(r.id)}>
-                            Отменить
-                          </button>
-                        )}
-                      </td>
                     </tr>
                   ))}
                 </tbody>

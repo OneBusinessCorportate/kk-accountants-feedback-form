@@ -43,8 +43,6 @@ import {
   fetchPlannedNotifications,
   fetchSentNotifications,
   editPlannedNotification,
-  approvePlannedNotification,
-  cancelPlannedNotification,
   attachNotification,
 } from './api'
 
@@ -105,15 +103,11 @@ describe('editPlannedNotification', () => {
   })
 })
 
-describe('approve / cancel', () => {
-  it('approve calls kk_approve_notification with the id as string', async () => {
-    await approvePlannedNotification({ plannedId: 7 })
-    expect(rpcCalls[0].fn).toBe('kk_approve_notification')
-    expect(rpcCalls[0].args).toEqual({ p_planned_id: '7', p_login_code: 'MYCODE123' })
-  })
-  it('cancel calls kk_cancel_notification', async () => {
-    await cancelPlannedNotification({ plannedId: 7 })
-    expect(rpcCalls[0].fn).toBe('kk_cancel_notification')
+describe('approve / cancel removed (0036)', () => {
+  it('the api no longer exports approve/cancel — the bot always sends', async () => {
+    const api = await import('./api')
+    expect(api.approvePlannedNotification).toBeUndefined()
+    expect(api.cancelPlannedNotification).toBeUndefined()
   })
 })
 
